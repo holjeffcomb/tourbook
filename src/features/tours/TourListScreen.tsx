@@ -3,7 +3,6 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
-import { useAuth } from '@/features/auth/AuthContext';
 import { useTours } from '@/features/tours/queries';
 import type { TourWithAct } from '@/features/tours/api';
 import { formatDateRange } from '@/lib/date';
@@ -35,15 +34,14 @@ function TourRow({ tour, onPress }: { tour: TourWithAct; onPress: () => void }) 
 
 export function TourListScreen() {
   const router = useRouter();
-  const { signOut } = useAuth();
   const { data: tours, isLoading, isError, refetch, isRefetching } = useTours();
 
   return (
     <Screen>
       <View style={styles.header}>
         <Text variant="title">Tours</Text>
-        <Text variant="body" color="primary" onPress={() => signOut()}>
-          Sign out
+        <Text variant="body" color="primary" onPress={() => router.push('/profile')}>
+          Profile
         </Text>
       </View>
 
