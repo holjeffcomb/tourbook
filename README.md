@@ -59,6 +59,7 @@ Security is what protects data.
 | `EXPO_PUBLIC_SUPABASE_URL`       | Supabase API URL (host depends on target)       |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY`  | Supabase anon key from `npx supabase status`    |
 | `EXPO_PUBLIC_MAPBOX_TOKEN`       | Optional Mapbox public token for venue search   |
+| `MAPBOX_DOWNLOAD_TOKEN`          | Mapbox secret download token (native map build) |
 
 Venue search uses the [Mapbox Search Box API](https://docs.mapbox.com/api/search/search-box/)
 to attach real coordinates to venues. Without `EXPO_PUBLIC_MAPBOX_TOKEN`, venue
@@ -67,6 +68,31 @@ entry falls back to manual name/city (no coordinates, no map).
 The URL host differs by target: `127.0.0.1` for the iOS simulator, `10.0.2.2`
 for the Android emulator, and your machine's LAN IP for a physical device. See
 `.env.example`.
+
+## Maps
+
+The tour detail shows each show on a [Mapbox](https://www.mapbox.com/) map
+(`@rnmapbox/maps`) with a numbered marker per stop and a route line in date
+order. Because it uses native code, it **requires a development build** (it does
+not run in Expo Go) and two tokens:
+
+- `EXPO_PUBLIC_MAPBOX_TOKEN` (`pk...`) — public, used at runtime.
+- `MAPBOX_DOWNLOAD_TOKEN` (`sk...` with `DOWNLOADS:READ`) — build-time only,
+  injected into the Mapbox config plugin by `app.config.ts`.
+
+The native plugin config lives in `app.config.ts` (layered over `app.json`) so
+the secret download token stays out of version control. Rebuild after changing
+native config:
+
+```sh
+# Local build (tokens read from .env):
+npx expo prebuild --clean
+npx expo run:ios        # or: npx expo run:android
+
+# EAS build: set the download token once, then build:
+eas env:create --name MAPBOX_DOWNLOAD_TOKEN --value sk... --environment preview --visibility sensitive
+eas build --profile preview --platform ios
+```
 
 ## Project structure
 

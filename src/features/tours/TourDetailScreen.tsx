@@ -5,6 +5,7 @@ import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
 import type { ShowWithVenue } from '@/features/shows/api';
+import { TourMap, type RouteStop } from '@/features/tours/TourMap';
 import { useShows } from '@/features/shows/queries';
 import {
   useDeleteTour,
@@ -48,6 +49,15 @@ export function TourDetailScreen() {
 
   const isCreator = !!tourQuery.data && tourQuery.data.created_by === session?.user.id;
   const isMember = !!membershipQuery.data;
+
+  const routeStops: RouteStop[] = (showsQuery.data ?? [])
+    .filter((show) => show.venue.latitude != null && show.venue.longitude != null)
+    .map((show) => ({
+      id: show.id,
+      name: show.venue.name,
+      latitude: show.venue.latitude as number,
+      longitude: show.venue.longitude as number,
+    }));
 
   const confirmLeave = () => {
     Alert.alert('Leave tour', 'You can rejoin later from the add-tour search.', [
@@ -182,6 +192,8 @@ export function TourDetailScreen() {
               !isCreator && <Button title="Leave tour" variant="secondary" onPress={confirmLeave} />
             )}
           </View>
+
+          <TourMap stops={routeStops} />
 
           <View style={styles.content}>
             <Text variant="heading">Shows</Text>
