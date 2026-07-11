@@ -34,6 +34,8 @@ export type CreateTourInput = {
   actName: string;
   role?: string;
   title?: string;
+  startDate?: string | null;
+  endDate?: string | null;
 };
 
 export async function createTour(input: CreateTourInput): Promise<{ id: string }> {
@@ -46,10 +48,45 @@ export async function createTour(input: CreateTourInput): Promise<{ id: string }
       act_id: actId,
       role: input.role?.trim() || null,
       title: input.title?.trim() || null,
+      start_date: input.startDate ?? null,
+      end_date: input.endDate ?? null,
     })
     .select('id')
     .single();
 
   if (error) throw error;
   return data;
+}
+
+export type UpdateTourInput = {
+  userId: string;
+  tourId: string;
+  actName: string;
+  role?: string;
+  title?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
+export async function updateTour(input: UpdateTourInput): Promise<void> {
+  const actId = await getOrCreateAct(input.actName, input.userId);
+
+  const { error } = await supabase
+    .from('tours')
+    .update({
+      act_id: actId,
+      role: input.role?.trim() || null,
+      title: input.title?.trim() || null,
+      start_date: input.startDate ?? null,
+      end_date: input.endDate ?? null,
+    })
+    .eq('id', input.tourId);
+
+  if (error) throw error;
+}
+
+export async function deleteTour(tourId: string): Promise<void> {
+  // Shows are removed automatically via the tour_id ON DELETE CASCADE.
+  const { error } = await supabase.from('tours').delete().eq('id', tourId);
+  if (error) throw error;
 }

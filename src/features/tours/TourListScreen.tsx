@@ -6,9 +6,11 @@ import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTours } from '@/features/tours/queries';
 import type { TourWithAct } from '@/features/tours/api';
+import { formatDateRange } from '@/lib/date';
 import { colors, radius, spacing } from '@/theme';
 
 function TourRow({ tour, onPress }: { tour: TourWithAct; onPress: () => void }) {
+  const dateRange = formatDateRange(tour.start_date, tour.end_date);
   return (
     <Pressable
       onPress={onPress}
@@ -20,6 +22,11 @@ function TourRow({ tour, onPress }: { tour: TourWithAct; onPress: () => void }) 
       {!!tour.role && (
         <Text variant="caption" color="textMuted">
           {tour.role}
+        </Text>
+      )}
+      {!!dateRange && (
+        <Text variant="caption" color="textMuted">
+          {dateRange}
         </Text>
       )}
     </Pressable>

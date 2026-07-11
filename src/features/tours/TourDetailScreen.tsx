@@ -1,24 +1,28 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import type { ShowWithVenue } from '@/features/shows/api';
 import { useShows } from '@/features/shows/queries';
-import { useTour } from '@/features/tours/queries';
-import { formatShowDate } from '@/lib/date';
+import { useDeleteTour, useTour } from '@/features/tours/queries';
+import { formatDateRange, formatShowDate } from '@/lib/date';
 import { colors, radius, spacing } from '@/theme';
 
-function ShowRow({ show }: { show: ShowWithVenue }) {
+function ShowRow({ show, onPress }: { show: ShowWithVenue; onPress: () => void }) {
   return (
-    <View style={styles.row}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+    >
       <Text variant="body" style={styles.rowDate}>
         {formatShowDate(show.date)}
       </Text>
       <Text color="textMuted">
         {show.venue.name} · {show.venue.city}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -27,6 +31,25 @@ export function TourDetailScreen() {
   const router = useRouter();
   const tourQuery = useTour(id);
   const showsQuery = useShows(id);
+  const deleteTour = useDeleteTour();
+
+  const confirmDelete = () => {
+    Alert.alert('Delete tour', 'This removes the tour and all of its shows. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteTour.mutateAsync(id);
+            router.back();
+          } catch (error) {
+            Alert.alert('Error', error instanceof Error ? error.message : 'Unable to delete tour');
+          }
+        },
+      },
+    ]);
+  };
 
   return (
     <Screen>
@@ -48,13 +71,37 @@ export function TourDetailScreen() {
       ) : (
         <>
           <View style={styles.header}>
-            <Text variant="title">{tourQuery.data.act.name}</Text>
+            <View style={styles.headerTop}>
+              <Text variant="title" style={styles.headerTitle}>
+                {tourQuery.data.act.name}
+              </Text>
+              <View style={styles.headerActions}>
+                <Text
+                  variant="body"
+                  color="primary"
+                  onPress={() => router.push({ pathname: '/tours/[id]/edit', params: { id } })}
+                >
+                  Edit
+                </Text>
+                <Text variant="body" color="danger" onPress={confirmDelete}>
+                  Delete
+                </Text>
+              </View>
+            </View>
             {!!tourQuery.data.title && <Text color="textMuted">{tourQuery.data.title}</Text>}
             {!!tourQuery.data.role && (
               <Text variant="caption" color="textMuted">
                 {tourQuery.data.role}
               </Text>
             )}
+            {(() => {
+              const range = formatDateRange(tourQuery.data.start_date, tourQuery.data.end_date);
+              return range ? (
+                <Text variant="caption" color="textMuted">
+                  {range}
+                </Text>
+              ) : null;
+            })()}
           </View>
 
           <View style={styles.content}>
@@ -72,7 +119,17 @@ export function TourDetailScreen() {
               <FlatList
                 data={showsQuery.data}
                 keyExtractor={(show) => show.id}
-                renderItem={({ item }) => <ShowRow show={item} />}
+                renderItem={({ item }) => (
+                  <ShowRow
+                    show={item}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/tours/[id]/shows/[showId]',
+                        params: { id, showId: item.id },
+                      })
+                    }
+                  />
+                )}
                 contentContainerStyle={styles.list}
                 onRefresh={showsQuery.refetch}
                 refreshing={showsQuery.isRefetching}
@@ -106,6 +163,19 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
   },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  headerTitle: {
+    flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
   content: {
     flex: 1,
     gap: spacing.sm,
@@ -130,6 +200,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
+  },
+  rowPressed: {
+    opacity: 0.7,
   },
   rowDate: {
     fontWeight: '600',
