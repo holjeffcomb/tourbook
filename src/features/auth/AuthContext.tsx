@@ -1,5 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { asyncStoragePersister } from '@/lib/persister';
+import { queryClient } from '@/lib/queryClient';
 import { supabase } from '@/lib/supabase';
 
 type SignUpParams = {
@@ -63,6 +65,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       signOut: async () => {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
+        // Drop cached personal data so it can't leak to the next user on a shared device.
+        queryClient.clear();
+        await asyncStoragePersister.removeClient();
       },
     }),
     [session, initializing],

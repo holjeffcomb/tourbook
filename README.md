@@ -14,7 +14,8 @@ within them.
 - **Expo** (SDK 57) + **React Native** + **TypeScript**
 - **Expo Router** — file-based navigation with typed routes
 - **Supabase** — Postgres, Auth, and Row-Level Security
-- **TanStack Query** — server state, caching, background refetch
+- **TanStack Query** — server state, caching, background refetch; the cache is
+  persisted to AsyncStorage so logged data is readable offline and across restarts
 - **React Hook Form** + **Zod** — forms and validation
 
 ## Prerequisites
