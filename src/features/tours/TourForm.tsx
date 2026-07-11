@@ -10,6 +10,7 @@ import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { ActAutocomplete } from '@/features/acts/ActAutocomplete';
 import { createTourSchema, type CreateTourValues } from '@/features/tours/schema';
+import { getErrorMessage } from '@/lib/errors';
 import { spacing } from '@/theme';
 
 type Props = {
@@ -32,7 +33,7 @@ export function TourForm({ title, submitLabel, defaultValues, onSubmit }: Props)
     try {
       await onSubmit(values);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Something went wrong');
+      setFormError(getErrorMessage(error));
     }
   });
 

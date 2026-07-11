@@ -61,15 +61,12 @@ export function DateField({
             value={pickerValue}
             mode="date"
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(event, selected) => {
-              if (Platform.OS === 'android') {
-                setOpen(false);
-                if (event.type === 'set' && selected) onChange(dateToISO(selected));
-                return;
-              }
-              // iOS spinner updates live while open.
-              if (selected) onChange(dateToISO(selected));
+            onValueChange={(_event, selected) => {
+              // iOS spinner updates live; Android fires once on confirm.
+              onChange(dateToISO(selected));
+              if (Platform.OS === 'android') setOpen(false);
             }}
+            onDismiss={() => setOpen(false)}
           />
           {Platform.OS === 'ios' && (
             <Button

@@ -10,6 +10,7 @@ import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { createShowSchema, type CreateShowValues } from '@/features/shows/schema';
+import { getErrorMessage } from '@/lib/errors';
 import { spacing } from '@/theme';
 
 type Props = {
@@ -33,7 +34,7 @@ export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete
     try {
       await onSubmit(values);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Something went wrong');
+      setFormError(getErrorMessage(error));
     }
   });
 
