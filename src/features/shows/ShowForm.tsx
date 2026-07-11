@@ -8,6 +8,7 @@ import { DateField } from '@/components/DateField';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
+import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { createShowSchema, type CreateShowValues } from '@/features/shows/schema';
 import { spacing } from '@/theme';
 
@@ -22,7 +23,7 @@ type Props = {
 export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
-  const { control, handleSubmit, formState } = useForm<CreateShowValues>({
+  const { control, handleSubmit, formState, setValue } = useForm<CreateShowValues>({
     resolver: zodResolver(createShowSchema),
     defaultValues,
   });
@@ -68,14 +69,15 @@ export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete
             control={control}
             name="venueName"
             render={({ field, fieldState }) => (
-              <TextField
-                label="Venue"
-                placeholder="e.g. Red Rocks Amphitheatre"
-                autoCapitalize="words"
+              <VenueAutocomplete
                 value={field.value}
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
+                onSelectVenue={({ name, city }) => {
+                  setValue('venueName', name, { shouldValidate: true, shouldDirty: true });
+                  setValue('venueCity', city, { shouldValidate: true, shouldDirty: true });
+                }}
               />
             )}
           />

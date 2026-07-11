@@ -1,9 +1,30 @@
 import { supabase } from '@/lib/supabase';
 
+export type VenueSuggestion = { id: string; name: string; city: string };
+
 // Mirrors the DB's generated normalized columns (lower(btrim(...))) so client
 // lookups match the unique (normalized_name, normalized_city) dedup key.
 function normalize(value: string) {
   return value.trim().toLowerCase();
+}
+
+// Escapes characters that are wildcards in a Postgres ILIKE pattern.
+function escapeLike(value: string) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+export async function searchVenues(query: string): Promise<VenueSuggestion[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+
+  const { data, error } = await supabase
+    .from('venues')
+    .select('id, name, city')
+    .ilike('name', `%${escapeLike(term)}%`)
+    .order('name')
+    .limit(8);
+  if (error) throw error;
+  return data ?? [];
 }
 
 async function findVenueId(normalizedName: string, normalizedCity: string): Promise<string | null> {

@@ -1,9 +1,30 @@
 import { supabase } from '@/lib/supabase';
 
+export type ActSuggestion = { id: string; name: string };
+
 // Mirrors the DB's generated `normalized_name` (lower(btrim(name))) so client
 // lookups match the unique dedup key.
 function normalizeName(name: string) {
   return name.trim().toLowerCase();
+}
+
+// Escapes characters that are wildcards in a Postgres ILIKE pattern.
+function escapeLike(value: string) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+export async function searchActs(query: string): Promise<ActSuggestion[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+
+  const { data, error } = await supabase
+    .from('acts')
+    .select('id, name')
+    .ilike('name', `%${escapeLike(term)}%`)
+    .order('name')
+    .limit(8);
+  if (error) throw error;
+  return data ?? [];
 }
 
 async function findActIdByName(normalized: string): Promise<string | null> {

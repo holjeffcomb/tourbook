@@ -8,6 +8,7 @@ import { DateField } from '@/components/DateField';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
+import { ActAutocomplete } from '@/features/acts/ActAutocomplete';
 import { createTourSchema, type CreateTourValues } from '@/features/tours/schema';
 import { spacing } from '@/theme';
 
@@ -54,10 +55,7 @@ export function TourForm({ title, submitLabel, defaultValues, onSubmit }: Props)
             control={control}
             name="actName"
             render={({ field, fieldState }) => (
-              <TextField
-                label="Act"
-                placeholder="Who did you tour with?"
-                autoCapitalize="words"
+              <ActAutocomplete
                 value={field.value}
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
