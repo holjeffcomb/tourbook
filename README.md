@@ -131,6 +131,55 @@ npm run db:types
 Unit tests use **Jest** with the `jest-expo` preset. Test files live next to the
 code they cover (e.g. `src/lib/date.test.ts`). Run them with `npm test`.
 
+## Deployment
+
+Local dev uses the Supabase stack + `.env`. To run the app off your machine, publish
+the schema to a hosted Supabase project and build with EAS. Cloud builds read
+`EXPO_PUBLIC_*` values from **EAS Environment Variables** (not from `.env`).
+
+### 1. Hosted Supabase
+
+1. Create a project at [supabase.com](https://supabase.com). From the dashboard note
+   the **project ref** (Settings → General) and the **API URL** + **anon key**
+   (Settings → API).
+2. Link the CLI and push the schema:
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <your-project-ref>
+   npx supabase db push
+   ```
+3. Disable email confirmation for the MVP sign-up flow: dashboard → Authentication →
+   Providers → Email → turn off **Confirm email**. (Local `config.toml` already has
+   `enable_confirmations = false`; `npx supabase config push` can sync it.)
+
+### 2. EAS preview build (Android APK)
+
+1. Create an [Expo account](https://expo.dev), then install and sign in:
+   ```bash
+   npm install --global eas-cli   # or use `npx eas-cli@latest`
+   eas login
+   ```
+2. Link the project (writes `extra.eas.projectId` into app.json):
+   ```bash
+   eas init
+   ```
+3. Provide the hosted Supabase values as EAS env vars for the `preview` environment:
+   ```bash
+   eas env:create --name EXPO_PUBLIC_SUPABASE_URL \
+     --value https://<project-ref>.supabase.co --environment preview --visibility plaintext
+   eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY \
+     --value <anon-key> --environment preview --visibility sensitive
+   ```
+   Repeat with `--environment production` before making a production build.
+4. Build the installable APK:
+   ```bash
+   eas build --profile preview --platform android
+   ```
+   When it finishes, install it from the build details page (or `eas build:list`).
+
+Build profiles live in `eas.json`. The app/bundle id is `com.tourbook.app` (in
+app.json) — change it before any store submission.
+
 ## Conventions
 
 - **TypeScript strict mode**; import from `@/*` (aliased to `src/`).
