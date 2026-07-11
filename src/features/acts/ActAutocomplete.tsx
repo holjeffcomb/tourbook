@@ -7,9 +7,10 @@ type Props = {
   onChangeText: (text: string) => void;
   onBlur?: () => void;
   error?: string;
+  onSelectAct?: (act: { id: string; name: string }) => void;
 };
 
-export function ActAutocomplete({ value, onChangeText, onBlur, error }: Props) {
+export function ActAutocomplete({ value, onChangeText, onBlur, error, onSelectAct }: Props) {
   const debounced = useDebouncedValue(value, 250);
   const { data } = useActSearch(debounced);
 
@@ -24,7 +25,10 @@ export function ActAutocomplete({ value, onChangeText, onBlur, error }: Props) {
       onBlur={onBlur}
       error={error}
       suggestions={suggestions}
-      onSelect={(suggestion) => onChangeText(suggestion.label)}
+      onSelect={(suggestion) => {
+        onChangeText(suggestion.label);
+        onSelectAct?.({ id: suggestion.id, name: suggestion.label });
+      }}
     />
   );
 }

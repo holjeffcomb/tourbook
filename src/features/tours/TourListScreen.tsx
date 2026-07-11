@@ -4,11 +4,11 @@ import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useTours } from '@/features/tours/queries';
-import type { TourWithAct } from '@/features/tours/api';
+import type { MyTour } from '@/features/tours/api';
 import { formatDateRange } from '@/lib/date';
 import { colors, radius, spacing } from '@/theme';
 
-function TourRow({ tour, onPress }: { tour: TourWithAct; onPress: () => void }) {
+function TourRow({ tour, onPress }: { tour: MyTour; onPress: () => void }) {
   const dateRange = formatDateRange(tour.start_date, tour.end_date);
   return (
     <Pressable
@@ -18,9 +18,9 @@ function TourRow({ tour, onPress }: { tour: TourWithAct; onPress: () => void }) 
     >
       <Text variant="heading">{tour.act.name}</Text>
       {!!tour.title && <Text color="textMuted">{tour.title}</Text>}
-      {!!tour.role && (
+      {!!tour.myRole && (
         <Text variant="caption" color="textMuted">
-          {tour.role}
+          {tour.myRole}
         </Text>
       )}
       {!!dateRange && (

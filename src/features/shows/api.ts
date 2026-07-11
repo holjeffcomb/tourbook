@@ -45,7 +45,7 @@ export async function createShow(input: CreateShowInput): Promise<{ id: string }
     .from('shows')
     .insert({
       tour_id: input.tourId,
-      user_id: input.userId,
+      created_by: input.userId,
       venue_id: venueId,
       date: input.date,
     })

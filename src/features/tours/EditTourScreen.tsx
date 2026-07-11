@@ -4,7 +4,7 @@ import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TourForm } from '@/features/tours/TourForm';
-import { useTour, useUpdateTour } from '@/features/tours/queries';
+import { useMyMembership, useTour, useUpdateTour } from '@/features/tours/queries';
 import type { CreateTourValues } from '@/features/tours/schema';
 import { colors, spacing } from '@/theme';
 
@@ -12,9 +12,10 @@ export function EditTourScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const tourQuery = useTour(id);
+  const membershipQuery = useMyMembership(id);
   const updateTour = useUpdateTour(id);
 
-  if (tourQuery.isLoading) {
+  if (tourQuery.isLoading || membershipQuery.isLoading) {
     return (
       <Screen>
         <View style={styles.center}>
@@ -38,7 +39,7 @@ export function EditTourScreen() {
   const tour = tourQuery.data;
   const defaultValues: CreateTourValues = {
     actName: tour.act.name,
-    role: tour.role ?? '',
+    role: membershipQuery.data?.role ?? '',
     title: tour.title ?? '',
     startDate: tour.start_date,
     endDate: tour.end_date,

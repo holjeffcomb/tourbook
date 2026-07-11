@@ -3,9 +3,17 @@ import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, View } from 
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
+import { useAuth } from '@/features/auth/AuthContext';
 import type { ShowWithVenue } from '@/features/shows/api';
 import { useShows } from '@/features/shows/queries';
-import { useDeleteTour, useTour } from '@/features/tours/queries';
+import {
+  useDeleteTour,
+  useJoinTour,
+  useLeaveTour,
+  useMyMembership,
+  useTour,
+  useTourMembers,
+} from '@/features/tours/queries';
 import { formatDateRange, formatShowDate } from '@/lib/date';
 import { colors, radius, spacing } from '@/theme';
 
@@ -29,9 +37,34 @@ function ShowRow({ show, onPress }: { show: ShowWithVenue; onPress: () => void }
 export function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { session } = useAuth();
   const tourQuery = useTour(id);
+  const membershipQuery = useMyMembership(id);
+  const membersQuery = useTourMembers(id);
   const showsQuery = useShows(id);
   const deleteTour = useDeleteTour();
+  const joinTour = useJoinTour(id);
+  const leaveTour = useLeaveTour(id);
+
+  const isCreator = !!tourQuery.data && tourQuery.data.created_by === session?.user.id;
+  const isMember = !!membershipQuery.data;
+
+  const confirmLeave = () => {
+    Alert.alert('Leave tour', 'You can rejoin later from the add-tour search.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await leaveTour.mutateAsync();
+          } catch (error) {
+            Alert.alert('Error', error instanceof Error ? error.message : 'Unable to leave tour');
+          }
+        },
+      },
+    ]);
+  };
 
   const confirmDelete = () => {
     Alert.alert('Delete tour', 'This removes the tour and all of its shows. This cannot be undone.', [
@@ -75,23 +108,25 @@ export function TourDetailScreen() {
               <Text variant="title" style={styles.headerTitle}>
                 {tourQuery.data.act.name}
               </Text>
-              <View style={styles.headerActions}>
-                <Text
-                  variant="body"
-                  color="primary"
-                  onPress={() => router.push({ pathname: '/tours/[id]/edit', params: { id } })}
-                >
-                  Edit
-                </Text>
-                <Text variant="body" color="danger" onPress={confirmDelete}>
-                  Delete
-                </Text>
-              </View>
+              {isCreator && (
+                <View style={styles.headerActions}>
+                  <Text
+                    variant="body"
+                    color="primary"
+                    onPress={() => router.push({ pathname: '/tours/[id]/edit', params: { id } })}
+                  >
+                    Edit
+                  </Text>
+                  <Text variant="body" color="danger" onPress={confirmDelete}>
+                    Delete
+                  </Text>
+                </View>
+              )}
             </View>
             {!!tourQuery.data.title && <Text color="textMuted">{tourQuery.data.title}</Text>}
-            {!!tourQuery.data.role && (
+            {!!membershipQuery.data?.role && (
               <Text variant="caption" color="textMuted">
-                {tourQuery.data.role}
+                {membershipQuery.data.role}
               </Text>
             )}
             {(() => {
@@ -102,6 +137,50 @@ export function TourDetailScreen() {
                 </Text>
               ) : null;
             })()}
+          </View>
+
+          <View style={styles.members}>
+            <Text variant="heading">Members</Text>
+            {membersQuery.data && membersQuery.data.length > 0 ? (
+              membersQuery.data.map((member) => {
+                const isYou = member.user_id === session?.user.id;
+                const name = member.profile?.display_name || (isYou ? 'You' : 'Member');
+                return (
+                  <View key={member.id} style={styles.memberRow}>
+                    <Text variant="body">
+                      {name}
+                      {isYou && name !== 'You' ? ' (you)' : ''}
+                    </Text>
+                    {!!member.role && (
+                      <Text variant="caption" color="textMuted">
+                        {member.role}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })
+            ) : (
+              <Text color="textMuted">No members yet.</Text>
+            )}
+
+            {!isMember ? (
+              <Button
+                title="Join this tour"
+                onPress={async () => {
+                  try {
+                    await joinTour.mutateAsync(undefined);
+                  } catch (error) {
+                    Alert.alert(
+                      'Error',
+                      error instanceof Error ? error.message : 'Unable to join tour',
+                    );
+                  }
+                }}
+                loading={joinTour.isPending}
+              />
+            ) : (
+              !isCreator && <Button title="Leave tour" variant="secondary" onPress={confirmLeave} />
+            )}
           </View>
 
           <View style={styles.content}>
@@ -143,10 +222,12 @@ export function TourDetailScreen() {
             )}
           </View>
 
-          <Button
-            title="Add show"
-            onPress={() => router.push({ pathname: '/tours/[id]/add-show', params: { id } })}
-          />
+          {isMember && (
+            <Button
+              title="Add show"
+              onPress={() => router.push({ pathname: '/tours/[id]/add-show', params: { id } })}
+            />
+          )}
         </>
       )}
     </Screen>
@@ -175,6 +256,16 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  members: {
+    gap: spacing.sm,
+    paddingBottom: spacing.md,
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   content: {
     flex: 1,
