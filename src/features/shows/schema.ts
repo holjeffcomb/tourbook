@@ -11,6 +11,10 @@ export const createShowSchema = z.object({
   date: isoDate,
   venueName: z.string().trim().min(1, 'Venue is required'),
   venueCity: z.string().trim().min(1, 'City is required'),
+  // Captured when a venue is picked from Mapbox search; not user-edited.
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  address: z.string().nullable().optional(),
 });
 
 export type CreateShowValues = z.infer<typeof createShowSchema>;

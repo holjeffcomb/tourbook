@@ -223,28 +223,37 @@ export type Database = {
       }
       venues: {
         Row: {
+          address: string | null
           city: string
           created_at: string
           created_by: string | null
           id: string
+          latitude: number | null
+          longitude: number | null
           name: string
           normalized_city: string | null
           normalized_name: string | null
         }
         Insert: {
+          address?: string | null
           city: string
           created_at?: string
           created_by?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           name: string
           normalized_city?: string | null
           normalized_name?: string | null
         }
         Update: {
+          address?: string | null
           city?: string
           created_at?: string
           created_by?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           name?: string
           normalized_city?: string | null
           normalized_name?: string | null

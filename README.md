@@ -54,10 +54,15 @@ Expo Go. If you change `.env` or hit a stale bundler cache, restart with
 (`src/lib/env.ts`). The anon key is safe to ship in the client — Row-Level
 Security is what protects data.
 
-| Variable                         | Description                                  |
-| -------------------------------- | -------------------------------------------- |
-| `EXPO_PUBLIC_SUPABASE_URL`       | Supabase API URL (host depends on target)    |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY`  | Supabase anon key from `npx supabase status` |
+| Variable                         | Description                                     |
+| -------------------------------- | ----------------------------------------------- |
+| `EXPO_PUBLIC_SUPABASE_URL`       | Supabase API URL (host depends on target)       |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY`  | Supabase anon key from `npx supabase status`    |
+| `EXPO_PUBLIC_MAPBOX_TOKEN`       | Optional Mapbox public token for venue search   |
+
+Venue search uses the [Mapbox Search Box API](https://docs.mapbox.com/api/search/search-box/)
+to attach real coordinates to venues. Without `EXPO_PUBLIC_MAPBOX_TOKEN`, venue
+entry falls back to manual name/city (no coordinates, no map).
 
 The URL host differs by target: `127.0.0.1` for the iOS simulator, `10.0.2.2`
 for the Android emulator, and your machine's LAN IP for a physical device. See

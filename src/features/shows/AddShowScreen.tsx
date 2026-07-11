@@ -11,7 +11,14 @@ export function AddShowScreen() {
     <ShowForm
       title="Add show"
       submitLabel="Add show"
-      defaultValues={{ date: '', venueName: '', venueCity: '' }}
+      defaultValues={{
+        date: '',
+        venueName: '',
+        venueCity: '',
+        latitude: null,
+        longitude: null,
+        address: null,
+      }}
       onSubmit={async (values) => {
         await createShow.mutateAsync(values);
         router.back();

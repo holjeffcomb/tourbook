@@ -41,6 +41,9 @@ export function EditShowScreen() {
     date: show.date,
     venueName: show.venue.name,
     venueCity: show.venue.city,
+    latitude: show.venue.latitude,
+    longitude: show.venue.longitude,
+    address: show.venue.address,
   };
 
   const confirmDelete = () => {

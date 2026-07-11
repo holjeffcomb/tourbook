@@ -74,9 +74,12 @@ export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
-                onSelectVenue={({ name, city }) => {
+                onSelectVenue={({ name, city, address, latitude, longitude }) => {
                   setValue('venueName', name, { shouldValidate: true, shouldDirty: true });
                   setValue('venueCity', city, { shouldValidate: true, shouldDirty: true });
+                  setValue('latitude', latitude ?? null, { shouldDirty: true });
+                  setValue('longitude', longitude ?? null, { shouldDirty: true });
+                  setValue('address', address ?? null, { shouldDirty: true });
                 }}
               />
             )}
