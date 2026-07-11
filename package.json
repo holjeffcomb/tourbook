@@ -29,7 +29,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "db:types": "supabase gen types typescript --local > src/lib/database.types.ts"
   },
   "private": true
 }
