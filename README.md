@@ -122,8 +122,14 @@ npm run db:types
 | `npm start`         | Start the Expo dev server            |
 | `npm run ios`       | Start and open the iOS simulator     |
 | `npm run android`   | Start and open the Android emulator  |
+| `npm test`          | Run the Jest test suite              |
 | `npm run typecheck` | Type-check the project (`tsc`)       |
 | `npm run db:types`  | Regenerate Supabase types (local DB) |
+
+## Testing
+
+Unit tests use **Jest** with the `jest-expo` preset. Test files live next to the
+code they cover (e.g. `src/lib/date.test.ts`). Run them with `npm test`.
 
 ## Conventions
 
