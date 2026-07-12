@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createTour } from '@/features/tours/api';
 import { createShow } from '@/features/shows/api';
 import { getErrorMessage } from '@/lib/errors';
-import { geocodeVenue } from '@/lib/mapbox';
+import { geocodeVenue, type VenueMatchConfidence } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
 
 const parsedStopSchema = z.object({
@@ -19,6 +19,62 @@ const parsedTourSchema = z.object({
 
 export type ParsedStop = z.infer<typeof parsedStopSchema>;
 export type ParsedTour = z.infer<typeof parsedTourSchema>;
+
+export type { VenueMatchConfidence };
+
+export type ResolvedImportStop = {
+  venueName: string;
+  city: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  confidence: VenueMatchConfidence;
+  mapboxPlace: string | null;
+};
+
+export async function resolveImportStop(
+  venueName: string,
+  city: string,
+  address?: string | null,
+): Promise<ResolvedImportStop> {
+  const requestedCity = city.trim();
+  const name = venueName.trim();
+
+  if (!name || !requestedCity) {
+    return {
+      venueName: name,
+      city: requestedCity,
+      address: address?.trim() || null,
+      latitude: null,
+      longitude: null,
+      confidence: 'unresolved',
+      mapboxPlace: null,
+    };
+  }
+
+  const geo = await geocodeVenue(name, requestedCity, address).catch(() => null);
+  if (!geo) {
+    return {
+      venueName: name,
+      city: requestedCity,
+      address: address?.trim() || null,
+      latitude: null,
+      longitude: null,
+      confidence: 'unresolved',
+      mapboxPlace: null,
+    };
+  }
+
+  return {
+    venueName: geo.name || name,
+    city: requestedCity,
+    address: geo.address ?? address?.trim() ?? null,
+    latitude: geo.latitude,
+    longitude: geo.longitude,
+    confidence: geo.confidence,
+    mapboxPlace: geo.mapboxPlace,
+  };
+}
 
 // On failure supabase-js throws with the raw Response on `error.context` and an
 // opaque "non-2xx status code" message. Read the body ourselves to surface the
@@ -61,8 +117,15 @@ export async function parseTourText(text: string): Promise<ParsedTour> {
   return result.data;
 }
 
-// A stop that has passed validation and is ready to become a show.
-export type ImportStop = { date: string; venueName: string; city: string };
+export type ImportStop = {
+  date: string;
+  venueName: string;
+  city: string;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  confidence?: VenueMatchConfidence;
+};
 
 export type CreateImportedTourInput = {
   userId: string;
@@ -83,20 +146,39 @@ export async function createImportedTour(
     endDate: dates[dates.length - 1] ?? null,
   });
 
-  // Sequential so shared-venue dedup is race-free and one bad geocode can't
-  // abort the rest; geocoding is best-effort (falls back to name + city).
   let created = 0;
   for (const stop of input.stops) {
-    const geo = await geocodeVenue(stop.venueName, stop.city).catch(() => null);
+    const requestedCity = stop.city.trim();
+    let venueName = stop.venueName.trim();
+    let latitude = stop.latitude ?? null;
+    let longitude = stop.longitude ?? null;
+    let address = stop.address?.trim() || null;
+
+    const hasConfirmedCoords =
+      stop.confidence === 'confirmed' && latitude != null && longitude != null;
+
+    if (!hasConfirmedCoords) {
+      const resolved = await resolveImportStop(venueName, requestedCity, address);
+      venueName = resolved.venueName;
+      address = resolved.address;
+      if (resolved.confidence === 'confirmed') {
+        latitude = resolved.latitude;
+        longitude = resolved.longitude;
+      } else {
+        latitude = null;
+        longitude = null;
+      }
+    }
+
     await createShow({
       userId: input.userId,
       tourId: id,
       date: stop.date,
-      venueName: stop.venueName,
-      venueCity: geo?.city || stop.city,
-      latitude: geo?.latitude ?? null,
-      longitude: geo?.longitude ?? null,
-      address: geo?.address ?? null,
+      venueName,
+      venueCity: requestedCity,
+      latitude,
+      longitude,
+      address,
     });
     created += 1;
   }

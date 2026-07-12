@@ -33,10 +33,9 @@ export function AutocompleteField({
   // Blur fires before a suggestion's press; defer hiding so the tap registers.
   const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const matchesValue =
-    suggestions.length === 1 &&
-    suggestions[0].label.trim().toLowerCase() === value.trim().toLowerCase();
-  const showList = focused && suggestions.length > 0 && !matchesValue;
+  // Always show suggestions while focused so the user can confirm a pick
+  // (e.g. "MTELUS" with one Mapbox hit still needs a tap to lock in coords).
+  const showList = focused && suggestions.length > 0;
 
   return (
     <View style={styles.container}>

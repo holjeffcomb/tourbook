@@ -1,16 +1,24 @@
 import { useQuery } from '@tanstack/react-query';
 import { useFriends } from '@/features/social/queries';
 import { getVenue, listVenuePlayers } from '@/features/venues/api';
-import { isMapboxConfigured, suggestPlaces } from '@/lib/mapbox';
+import { isMapboxConfigured, searchPlaces } from '@/lib/mapbox';
 
-export function usePlaceSuggestions(query: string, sessionToken: string) {
+export function usePlaceSuggestions(
+  query: string,
+  sessionToken: string,
+  city?: string,
+  enabled = true,
+) {
   const term = query.trim();
+  const cityPart = city?.trim() ?? '';
 
   return useQuery({
-    queryKey: ['places', 'suggest', term],
-    queryFn: () => suggestPlaces(term, sessionToken),
-    enabled: term.length >= 2 && isMapboxConfigured(),
-    staleTime: 60_000,
+    queryKey: ['places', 'search', term, cityPart],
+    queryFn: () => searchPlaces(term, sessionToken, cityPart || undefined),
+    enabled: enabled && term.length >= 2 && isMapboxConfigured(),
+    // Don't stick on empty typeahead misses for complete venue names.
+    staleTime: 0,
+    gcTime: 60_000,
   });
 }
 

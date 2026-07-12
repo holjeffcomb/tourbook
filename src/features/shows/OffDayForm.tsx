@@ -32,10 +32,12 @@ export function OffDayForm({
 }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
-  const { control, handleSubmit, formState, setValue } = useForm<OffDayValues>({
+  const { control, handleSubmit, formState, setValue, watch } = useForm<OffDayValues>({
     resolver: zodResolver(offDaySchema),
     defaultValues,
   });
+
+  const offDayCity = watch('city');
 
   const submit = handleSubmit(async (values) => {
     setFormError(null);
@@ -85,11 +87,28 @@ export function OffDayForm({
 
           <Controller
             control={control}
+            name="city"
+            render={({ field, fieldState }) => (
+              <TextField
+                label="City (optional)"
+                placeholder="e.g. Denver, CO"
+                autoCapitalize="words"
+                value={field.value ?? ''}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                error={fieldState.error?.message}
+              />
+            )}
+          />
+
+          <Controller
+            control={control}
             name="label"
             render={({ field, fieldState }) => (
               <VenueAutocomplete
                 label="Place or note (optional)"
                 placeholder="e.g. Marriott Downtown, Travel day"
+                cityContext={offDayCity}
                 value={field.value ?? ''}
                 onChangeText={(text) => {
                   field.onChange(text);
@@ -103,7 +122,10 @@ export function OffDayForm({
                 error={fieldState.error?.message}
                 onSelectVenue={({ name, city, address, latitude, longitude }) => {
                   setValue('label', name, { shouldValidate: true, shouldDirty: true });
-                  setValue('city', city, { shouldValidate: true, shouldDirty: true });
+                  setValue('city', city || offDayCity || '', {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  });
                   setValue('latitude', latitude ?? null, { shouldDirty: true });
                   setValue('longitude', longitude ?? null, { shouldDirty: true });
                   setValue('address', address ?? null, { shouldDirty: true });
@@ -114,11 +136,11 @@ export function OffDayForm({
 
           <Controller
             control={control}
-            name="city"
+            name="address"
             render={({ field, fieldState }) => (
               <TextField
-                label="City (optional)"
-                placeholder="e.g. Denver, CO"
+                label="Street address (optional)"
+                placeholder="Helps when the place isn't in the map database"
                 autoCapitalize="words"
                 value={field.value ?? ''}
                 onChangeText={field.onChange}

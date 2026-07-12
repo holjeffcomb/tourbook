@@ -165,11 +165,12 @@ async function resolveShowLocation(input: VenueFields & { userId: string }) {
 
   // No venue yet: geocode the known city so there's still a pin. Best-effort.
   const geo = await geocodeVenue(input.venueCity, '').catch(() => null);
+  const hasCoords = geo?.confidence === 'confirmed';
   return {
     venue_id: null as string | null,
     city: input.venueCity.trim(),
-    latitude: geo?.latitude ?? null,
-    longitude: geo?.longitude ?? null,
+    latitude: hasCoords ? (geo?.latitude ?? null) : null,
+    longitude: hasCoords ? (geo?.longitude ?? null) : null,
     address: null,
   };
 }
@@ -237,8 +238,10 @@ async function resolveOffLocation(input: OffDayFields) {
 
   if ((latitude == null || longitude == null) && city) {
     const geo = await geocodeVenue(city, '').catch(() => null);
-    latitude = geo?.latitude ?? null;
-    longitude = geo?.longitude ?? null;
+    if (geo?.confidence === 'confirmed') {
+      latitude = geo.latitude;
+      longitude = geo.longitude;
+    }
   }
 
   return {

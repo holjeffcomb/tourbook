@@ -32,10 +32,12 @@ export function ShowForm({
 }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
-  const { control, handleSubmit, formState, setValue } = useForm<CreateShowValues>({
+  const { control, handleSubmit, formState, setValue, watch } = useForm<CreateShowValues>({
     resolver: zodResolver(createShowSchema),
     defaultValues,
   });
+
+  const venueCity = watch('venueCity');
 
   const submit = handleSubmit(async (values) => {
     setFormError(null);
@@ -84,17 +86,34 @@ export function ShowForm({
 
           <Controller
             control={control}
+            name="venueCity"
+            render={({ field, fieldState }) => (
+              <TextField
+                label="City"
+                placeholder="e.g. Morrison, CO"
+                autoCapitalize="words"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                error={fieldState.error?.message}
+              />
+            )}
+          />
+
+          <Controller
+            control={control}
             name="venueName"
             render={({ field, fieldState }) => (
               <VenueAutocomplete
                 label="Venue (optional)"
+                cityContext={venueCity}
                 value={field.value ?? ''}
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
                 onSelectVenue={({ name, city, address, latitude, longitude }) => {
                   setValue('venueName', name, { shouldValidate: true, shouldDirty: true });
-                  setValue('venueCity', city, { shouldValidate: true, shouldDirty: true });
+                  setValue('venueCity', city || venueCity, { shouldValidate: true, shouldDirty: true });
                   setValue('latitude', latitude ?? null, { shouldDirty: true });
                   setValue('longitude', longitude ?? null, { shouldDirty: true });
                   setValue('address', address ?? null, { shouldDirty: true });
@@ -105,13 +124,13 @@ export function ShowForm({
 
           <Controller
             control={control}
-            name="venueCity"
+            name="address"
             render={({ field, fieldState }) => (
               <TextField
-                label="City"
-                placeholder="e.g. Morrison, CO"
+                label="Street address (optional)"
+                placeholder="Helps when the venue isn't in the map database"
                 autoCapitalize="words"
-                value={field.value}
+                value={field.value ?? ''}
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
