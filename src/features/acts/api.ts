@@ -61,3 +61,77 @@ export async function getOrCreateAct(name: string, userId: string): Promise<stri
 
   return data.id;
 }
+
+export async function getAct(id: string): Promise<ActSuggestion> {
+  const { data, error } = await supabase.from('acts').select('id, name').eq('id', id).single();
+  if (error) throw error;
+  return data;
+}
+
+export type ActCrewMember = {
+  userId: string;
+  displayName: string | null;
+  username: string | null;
+  role: string | null;
+  tourCount: number;
+  isFriend: boolean;
+};
+
+/** Members on visible tours for this act; friends highlighted. */
+export async function listActCrew(
+  actId: string,
+  friendIds: Set<string>,
+): Promise<ActCrewMember[]> {
+  const { data, error } = await supabase
+    .from('tours')
+    .select(
+      'id, members:tour_members(user_id, role, profile:profiles(display_name, username))',
+    )
+    .eq('act_id', actId);
+  if (error) throw error;
+
+  type Row = {
+    id: string;
+    members: {
+      user_id: string;
+      role: string | null;
+      profile: { display_name: string | null; username: string | null } | null;
+    }[];
+  };
+
+  const byUser = new Map<
+    string,
+    { displayName: string | null; username: string | null; role: string | null; tourCount: number }
+  >();
+
+  for (const tour of (data ?? []) as unknown as Row[]) {
+    for (const member of tour.members ?? []) {
+      const existing = byUser.get(member.user_id);
+      if (existing) {
+        existing.tourCount += 1;
+        if (!existing.role && member.role) existing.role = member.role;
+      } else {
+        byUser.set(member.user_id, {
+          displayName: member.profile?.display_name ?? null,
+          username: member.profile?.username ?? null,
+          role: member.role,
+          tourCount: 1,
+        });
+      }
+    }
+  }
+
+  return [...byUser.entries()]
+    .map(([userId, info]) => ({
+      userId,
+      displayName: info.displayName,
+      username: info.username,
+      role: info.role,
+      tourCount: info.tourCount,
+      isFriend: friendIds.has(userId),
+    }))
+    .sort((a, b) => {
+      if (a.isFriend !== b.isFriend) return a.isFriend ? -1 : 1;
+      return b.tourCount - a.tourCount;
+    });
+}

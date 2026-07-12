@@ -1,0 +1,360 @@
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
+import { Button } from '@/components/Button';
+import { Screen } from '@/components/Screen';
+import { Text } from '@/components/Text';
+import { TextField } from '@/components/TextField';
+import { useCreateImportedTour, useParseTour } from '@/features/tours/queries';
+import type { ImportStop, ParsedTour } from '@/features/tours/import';
+import { getErrorMessage } from '@/lib/errors';
+import { colors, radius, spacing } from '@/theme';
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+type EditableStop = { key: string; date: string; venueName: string; city: string };
+
+let stopCounter = 0;
+function makeStop(partial: Partial<EditableStop> = {}): EditableStop {
+  stopCounter += 1;
+  return { key: `stop-${stopCounter}`, date: '', venueName: '', city: '', ...partial };
+}
+
+function isValidStop(stop: EditableStop): stop is EditableStop & { date: string } {
+  return (
+    ISO_DATE.test(stop.date) &&
+    !Number.isNaN(Date.parse(stop.date)) &&
+    stop.venueName.trim().length > 0 &&
+    stop.city.trim().length > 0
+  );
+}
+
+function toEditable(parsed: ParsedTour): EditableStop[] {
+  return parsed.stops.map((stop) =>
+    makeStop({ date: stop.date ?? '', venueName: stop.venueName, city: stop.city }),
+  );
+}
+
+// Shift the year of an ISO date, preserving month/day (clamps Feb 29 in a
+// non-leap target year). Leaves non-ISO/blank dates untouched.
+function shiftDateYear(date: string, delta: number): string {
+  if (!ISO_DATE.test(date)) return date;
+  const [year, month, day] = date.split('-').map(Number);
+  const target = new Date(Date.UTC(year + delta, month - 1, day));
+  // Overflow (e.g. Feb 29 -> Mar 1) means the day doesn't exist that year; clamp.
+  if (target.getUTCMonth() !== month - 1) target.setUTCDate(0);
+  return target.toISOString().slice(0, 10);
+}
+
+// The distinct years currently across the valid stop dates, sorted.
+function yearsInStops(stops: EditableStop[]): number[] {
+  const years = new Set<number>();
+  for (const stop of stops) {
+    if (ISO_DATE.test(stop.date)) years.add(Number(stop.date.slice(0, 4)));
+  }
+  return [...years].sort((a, b) => a - b);
+}
+
+export function ImportTourScreen() {
+  const router = useRouter();
+  const parse = useParseTour();
+  const create = useCreateImportedTour();
+
+  const [rawText, setRawText] = useState('');
+  const [phase, setPhase] = useState<'input' | 'review'>('input');
+  const [actName, setActName] = useState('');
+  const [tourTitle, setTourTitle] = useState('');
+  const [stops, setStops] = useState<EditableStop[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const onParse = async () => {
+    setError(null);
+    try {
+      const parsed = await parse.mutateAsync(rawText);
+      setActName(parsed.actName);
+      setTourTitle(parsed.tourTitle ?? '');
+      setStops(toEditable(parsed));
+      setPhase('review');
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
+
+  const updateStop = (key: string, patch: Partial<EditableStop>) => {
+    setStops((prev) => prev.map((stop) => (stop.key === key ? { ...stop, ...patch } : stop)));
+  };
+  const removeStop = (key: string) => setStops((prev) => prev.filter((stop) => stop.key !== key));
+  const addStop = () => setStops((prev) => [...prev, makeStop()]);
+  const shiftAllYears = (delta: number) =>
+    setStops((prev) => prev.map((stop) => ({ ...stop, date: shiftDateYear(stop.date, delta) })));
+
+  const years = yearsInStops(stops);
+  const yearLabel =
+    years.length === 0
+      ? null
+      : years.length === 1
+        ? String(years[0])
+        : `${years[0]}–${years[years.length - 1]}`;
+
+  const validStops = stops.filter(isValidStop);
+  const skipped = stops.length - validStops.length;
+  const canCreate = actName.trim().length > 0 && validStops.length > 0;
+
+  const onCreate = async () => {
+    setError(null);
+    const payloadStops: ImportStop[] = validStops.map((stop) => ({
+      date: stop.date,
+      venueName: stop.venueName.trim(),
+      city: stop.city.trim(),
+    }));
+    try {
+      const { id } = await create.mutateAsync({
+        actName: actName.trim(),
+        tourTitle: tourTitle.trim() || null,
+        stops: payloadStops,
+      });
+      router.replace({ pathname: '/tours/[id]', params: { id } });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
+
+  return (
+    <Screen>
+      <View style={styles.topBar}>
+        <Text variant="body" color="primary" onPress={() => router.back()}>
+          Cancel
+        </Text>
+      </View>
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+        >
+          {phase === 'input' ? (
+            <>
+              <Text variant="title">Import a tour</Text>
+              <Text color="textMuted">
+                Paste tour dates from a poster, listing, or email. We&apos;ll pull out the act,
+                venues, and dates for you to review before saving.
+              </Text>
+
+              <TextInput
+                style={styles.textArea}
+                placeholder={
+                  'e.g.\nThe Band — Summer 2024 Tour\nJun 12 — Red Rocks, Morrison CO\nJun 14 — The Gorge, George WA'
+                }
+                placeholderTextColor={colors.textMuted}
+                value={rawText}
+                onChangeText={setRawText}
+                multiline
+                textAlignVertical="top"
+                autoCapitalize="sentences"
+              />
+
+              {!!error && <Text color="danger">{error}</Text>}
+
+              <Button
+                title="Parse with AI"
+                onPress={onParse}
+                loading={parse.isPending}
+                disabled={rawText.trim().length === 0}
+              />
+            </>
+          ) : (
+            <>
+              <Text variant="title">Review import</Text>
+              <Text color="textMuted">
+                Check the details below. Fix anything that looks off, then save.
+              </Text>
+
+              <TextField label="Act" value={actName} onChangeText={setActName} autoCapitalize="words" />
+              <TextField
+                label="Tour title (optional)"
+                value={tourTitle}
+                onChangeText={setTourTitle}
+              />
+
+              <Text variant="heading">Stops ({stops.length})</Text>
+
+              {yearLabel && (
+                <View style={styles.yearCard}>
+                  <View style={styles.yearText}>
+                    <Text variant="body">Tour year: {yearLabel}</Text>
+                    <Text variant="caption" color="textMuted">
+                      Undated text can guess the wrong year. Shift every date if needed.
+                    </Text>
+                  </View>
+                  <View style={styles.yearButtons}>
+                    <Text
+                      variant="body"
+                      color="primary"
+                      style={styles.yearStep}
+                      onPress={() => shiftAllYears(-1)}
+                    >
+                      −1
+                    </Text>
+                    <Text
+                      variant="body"
+                      color="primary"
+                      style={styles.yearStep}
+                      onPress={() => shiftAllYears(1)}
+                    >
+                      +1
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {stops.map((stop, index) => {
+                const invalid = !isValidStop(stop);
+                return (
+                  <View key={stop.key} style={styles.stopCard}>
+                    <View style={styles.stopHeader}>
+                      <Text variant="caption" color="textMuted">
+                        Stop {index + 1}
+                      </Text>
+                      <Text variant="caption" color="danger" onPress={() => removeStop(stop.key)}>
+                        Remove
+                      </Text>
+                    </View>
+                    <TextField
+                      label="Date (YYYY-MM-DD)"
+                      value={stop.date}
+                      onChangeText={(value) => updateStop(stop.key, { date: value })}
+                      placeholder="2024-06-12"
+                      autoCapitalize="none"
+                      error={stop.date && !ISO_DATE.test(stop.date) ? 'Use YYYY-MM-DD' : undefined}
+                    />
+                    <TextField
+                      label="Venue"
+                      value={stop.venueName}
+                      onChangeText={(value) => updateStop(stop.key, { venueName: value })}
+                      autoCapitalize="words"
+                    />
+                    <TextField
+                      label="City"
+                      value={stop.city}
+                      onChangeText={(value) => updateStop(stop.key, { city: value })}
+                      autoCapitalize="words"
+                    />
+                    {invalid && (
+                      <Text variant="caption" color="textMuted">
+                        Needs a valid date, venue, and city to be saved.
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+
+              <Button title="Add stop" variant="secondary" onPress={addStop} />
+
+              {skipped > 0 && (
+                <Text variant="caption" color="textMuted">
+                  {skipped} incomplete {skipped === 1 ? 'stop' : 'stops'} will be skipped.
+                </Text>
+              )}
+
+              {!!error && <Text color="danger">{error}</Text>}
+
+              <Button
+                title={`Create tour with ${validStops.length} ${
+                  validStops.length === 1 ? 'show' : 'shows'
+                }`}
+                onPress={onCreate}
+                loading={create.isPending}
+                disabled={!canCreate}
+              />
+              <Text variant="body" color="primary" style={styles.startOver} onPress={() => setPhase('input')}>
+                Start over
+              </Text>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    paddingTop: spacing.md,
+  },
+  flex: {
+    flex: 1,
+  },
+  body: {
+    gap: spacing.md,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  textArea: {
+    minHeight: 180,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.background,
+  },
+  yearCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  yearText: {
+    flex: 1,
+    gap: 2,
+  },
+  yearButtons: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  yearStep: {
+    minWidth: 36,
+    textAlign: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.sm,
+    fontWeight: '700',
+  },
+  stopCard: {
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  stopHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  startOver: {
+    textAlign: 'center',
+    paddingVertical: spacing.sm,
+  },
+});

@@ -1,29 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
 import {
+  createOffDay,
   createShow,
-  deleteShow,
-  getShow,
-  listShows,
+  deleteStop,
+  getStop,
+  listStops,
+  updateOffDay,
   updateShow,
+  type CreateOffDayInput,
   type CreateShowInput,
+  type UpdateOffDayInput,
   type UpdateShowInput,
 } from '@/features/shows/api';
 
 export const showsKey = (tourId: string) => ['shows', tourId] as const;
 export const showKey = (showId: string) => ['show', showId] as const;
 
-export function useShows(tourId: string) {
+export function useStops(tourId: string) {
   return useQuery({
     queryKey: showsKey(tourId),
-    queryFn: () => listShows(tourId),
+    queryFn: () => listStops(tourId),
   });
 }
 
-export function useShow(showId: string) {
+export function useStop(stopId: string) {
   return useQuery({
-    queryKey: showKey(showId),
-    queryFn: () => getShow(showId),
+    queryKey: showKey(stopId),
+    queryFn: () => getStop(stopId),
   });
 }
 
@@ -56,11 +60,40 @@ export function useUpdateShow(tourId: string, showId: string) {
   });
 }
 
-export function useDeleteShow(tourId: string) {
+export function useCreateOffDay(tourId: string) {
+  const queryClient = useQueryClient();
+  const { session } = useAuth();
+
+  return useMutation({
+    mutationFn: (values: Omit<CreateOffDayInput, 'userId' | 'tourId'>) => {
+      if (!session) throw new Error('You must be signed in to add an off day');
+      return createOffDay({ ...values, tourId, userId: session.user.id });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+  });
+}
+
+export function useUpdateOffDay(tourId: string, stopId: string) {
+  const queryClient = useQueryClient();
+  const { session } = useAuth();
+
+  return useMutation({
+    mutationFn: (values: Omit<UpdateOffDayInput, 'userId' | 'stopId'>) => {
+      if (!session) throw new Error('You must be signed in to edit an off day');
+      return updateOffDay({ ...values, stopId, userId: session.user.id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
+      queryClient.invalidateQueries({ queryKey: showKey(stopId) });
+    },
+  });
+}
+
+export function useDeleteStop(tourId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (showId: string) => deleteShow(showId),
+    mutationFn: (stopId: string) => deleteStop(stopId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
   });
 }

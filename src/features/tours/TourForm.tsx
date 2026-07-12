@@ -2,25 +2,44 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { Button } from '@/components/Button';
 import { DateField } from '@/components/DateField';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { ActAutocomplete } from '@/features/acts/ActAutocomplete';
-import { createTourSchema, type CreateTourValues } from '@/features/tours/schema';
+import {
+  createTourSchema,
+  VISIBILITY_OPTIONS,
+  type CreateTourValues,
+} from '@/features/tours/schema';
 import { getErrorMessage } from '@/lib/errors';
-import { spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 type Props = {
   title: string;
   submitLabel: string;
   defaultValues: CreateTourValues;
   onSubmit: (values: CreateTourValues) => Promise<void>;
+  /** When false, hide the visibility picker (e.g. non-creator edits). */
+  showVisibility?: boolean;
 };
 
-export function TourForm({ title, submitLabel, defaultValues, onSubmit }: Props) {
+export function TourForm({
+  title,
+  submitLabel,
+  defaultValues,
+  onSubmit,
+  showVisibility = true,
+}: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const { control, handleSubmit, formState } = useForm<CreateTourValues>({
@@ -49,7 +68,11 @@ export function TourForm({ title, submitLabel, defaultValues, onSubmit }: Props)
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.form}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text variant="title">{title}</Text>
 
           <Controller
@@ -124,6 +147,39 @@ export function TourForm({ title, submitLabel, defaultValues, onSubmit }: Props)
             )}
           />
 
+          {showVisibility && (
+            <Controller
+              control={control}
+              name="visibility"
+              render={({ field }) => (
+                <View style={styles.visibility}>
+                  <Text variant="caption" color="textMuted">
+                    Visibility
+                  </Text>
+                  <View style={styles.visibilityOptions}>
+                    {VISIBILITY_OPTIONS.map((option) => {
+                      const selected = field.value === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          onPress={() => field.onChange(option.value)}
+                          style={[styles.visibilityOption, selected && styles.visibilitySelected]}
+                        >
+                          <Text variant="body" color={selected ? 'primary' : 'text'}>
+                            {option.label}
+                          </Text>
+                          <Text variant="caption" color="textMuted">
+                            {option.hint}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+            />
+          )}
+
           {!!formError && <Text color="danger">{formError}</Text>}
 
           <Button title={submitLabel} onPress={submit} loading={formState.isSubmitting} />
@@ -145,5 +201,22 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  visibility: {
+    gap: spacing.sm,
+  },
+  visibilityOptions: {
+    gap: spacing.sm,
+  },
+  visibilityOption: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  visibilitySelected: {
+    borderColor: colors.primary,
   },
 });

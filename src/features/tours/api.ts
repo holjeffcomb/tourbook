@@ -50,6 +50,7 @@ export type CreateTourInput = {
   title?: string;
   startDate?: string | null;
   endDate?: string | null;
+  visibility?: TourVisibility;
 };
 
 export async function createTour(input: CreateTourInput): Promise<{ id: string }> {
@@ -63,6 +64,7 @@ export async function createTour(input: CreateTourInput): Promise<{ id: string }
       title: input.title?.trim() || null,
       start_date: input.startDate ?? null,
       end_date: input.endDate ?? null,
+      visibility: input.visibility ?? 'public',
     })
     .select('id')
     .single();
@@ -84,6 +86,7 @@ export type UpdateTourInput = {
   title?: string;
   startDate?: string | null;
   endDate?: string | null;
+  visibility?: TourVisibility;
 };
 
 // Updates the shared tour's details. Only the creator passes RLS.
@@ -97,6 +100,7 @@ export async function updateTour(input: UpdateTourInput): Promise<void> {
       title: input.title?.trim() || null,
       start_date: input.startDate ?? null,
       end_date: input.endDate ?? null,
+      ...(input.visibility ? { visibility: input.visibility } : {}),
     })
     .eq('id', input.tourId);
   if (error) throw error;
@@ -142,13 +146,13 @@ export type TourMember = {
   user_id: string;
   role: string | null;
   created_at: string;
-  profile: { display_name: string | null } | null;
+  profile: { display_name: string | null; username: string | null } | null;
 };
 
 export async function listTourMembers(tourId: string): Promise<TourMember[]> {
   const { data, error } = await supabase
     .from('tour_members')
-    .select('id, user_id, role, created_at, profile:profiles(display_name)')
+    .select('id, user_id, role, created_at, profile:profiles(display_name, username)')
     .eq('tour_id', tourId)
     .order('created_at', { ascending: true });
   if (error) throw error;

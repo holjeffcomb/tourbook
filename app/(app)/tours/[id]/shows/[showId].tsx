@@ -1,1 +1,1 @@
-export { EditShowScreen as default } from '@/features/shows/EditShowScreen';
+export { EditStopScreen as default } from '@/features/shows/EditStopScreen';

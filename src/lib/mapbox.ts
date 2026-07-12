@@ -64,6 +64,57 @@ export async function suggestPlaces(
   }));
 }
 
+type ForwardResponse = {
+  features?: {
+    geometry: { coordinates: [number, number] };
+    properties: {
+      name?: string;
+      full_address?: string;
+      address?: string;
+      context?: {
+        place?: { name?: string };
+        locality?: { name?: string };
+        region?: { name?: string };
+      };
+    };
+  }[];
+};
+
+// One-shot forward geocode for batch use (e.g. AI import), where there's no
+// interactive suggest/retrieve session. Best-effort: returns null when Mapbox
+// isn't configured or nothing matches, so callers can still save name + city.
+export async function geocodeVenue(name: string, city: string): Promise<PlaceDetails | null> {
+  const query = [name.trim(), city.trim()].filter(Boolean).join(', ');
+  if (!env.mapboxToken || query.length < 2) return null;
+
+  const params = new URLSearchParams({
+    q: query,
+    access_token: env.mapboxToken,
+    limit: '1',
+    types: 'poi,address,place',
+  });
+  const res = await fetch(`${BASE}/forward?${params.toString()}`);
+  if (!res.ok) return null;
+
+  const json = (await res.json()) as ForwardResponse;
+  const feature = json.features?.[0];
+  if (!feature) return null;
+
+  const [longitude, latitude] = feature.geometry.coordinates;
+  const props = feature.properties ?? {};
+  const context = props.context ?? {};
+  const matchedCity =
+    context.place?.name ?? context.locality?.name ?? context.region?.name ?? city.trim();
+
+  return {
+    name: props.name || name.trim(),
+    city: matchedCity,
+    address: props.full_address ?? props.address ?? null,
+    latitude,
+    longitude,
+  };
+}
+
 type RetrieveResponse = {
   features?: {
     geometry: { coordinates: [number, number] };

@@ -94,6 +94,36 @@ eas env:create --name MAPBOX_DOWNLOAD_TOKEN --value sk... --environment preview 
 eas build --profile preview --platform ios
 ```
 
+## AI tour import
+
+The add-tour screen has a **Paste tour text (AI import)** option: paste a poster,
+listing, or email and an LLM extracts the act, tour title, and each show (date,
+venue, city) for you to review and edit before saving. Venues are geocoded via
+Mapbox on save, so imported shows appear on the map.
+
+Parsing runs in the `parse-tour` [Supabase Edge Function](supabase/functions/parse-tour)
+so the OpenAI key never ships in the app. It only returns structured data — it
+never writes to the database.
+
+Configure the key:
+
+```sh
+# Local: copy the template and fill in your key, then serve the function.
+cp supabase/functions/.env.example supabase/functions/.env   # add OPENAI_API_KEY
+npx supabase functions serve --env-file supabase/functions/.env --no-verify-jwt
+
+# Deployed: set the secret and deploy the function.
+npx supabase secrets set OPENAI_API_KEY=sk-...
+npx supabase functions deploy parse-tour
+```
+
+`--no-verify-jwt` disables only the platform's *symmetric* JWT check, which can't
+validate the asymmetric (ES256) tokens the stack issues to users. The function
+verifies the caller itself against `/auth/v1/user`, so authentication is still
+enforced.
+
+`OPENAI_MODEL` optionally overrides the model (defaults to `gpt-4o-mini`).
+
 ## Project structure
 
 ```
@@ -118,18 +148,23 @@ hooks), `schema.ts` (Zod), and screen components.
 
 ## Data model
 
-- **profiles** — one row per auth user (created on signup). Personal, private.
-- **tours** — belong to a user, reference a shared **act**; role is per-tour.
-  A one-off gig is just a tour with a single show.
-- **shows** — belong to a tour, reference a shared **venue**; `user_id` is
-  denormalized from the parent tour for simpler, faster RLS.
+- **profiles** — one row per auth user (created on signup). Includes `display_name`,
+  optional `username` (discovery handle), `bio`, and `default_role`. Readable by
+  authenticated users for attribution; writable only by the owner.
+- **friendships** — mutual request/accept graph (`pending` / `accepted` / `declined`).
+  Friendship unlocks history comparison and near-miss features; it does not replace
+  tour membership.
+- **tours** — shared catalog entities (act + optional title/dates) with
+  `visibility` of `public` | `friends` | `private`. Created by one user; members
+  join via **tour_members** (role lives on the membership row).
+- **shows** — itinerary stops on a tour (booked venues, city-only shows, or off
+  days). Readable when the parent tour is; writable by the stop creator.
 - **acts** / **venues** — shared, community-wide reference data, deduped by a
   generated normalized name (and city, for venues).
 
-`visibility` is a first-class enum seeded with only `private`, so adding
-`friends`/`public` later is additive rather than a schema rewrite. Personal data
-(profiles/tours/shows) is guarded by owner-only RLS policies; shared reference
-data is readable by any authenticated user and insert-only from the client.
+Personal data is guarded by RLS. Public tours stay discoverable so the shared
+catalog works; friends unlock comparison and can read `friends`-visibility tours
+created by people they're friends with.
 
 ## Database & migrations
 

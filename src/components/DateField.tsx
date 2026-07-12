@@ -13,6 +13,9 @@ type Props = {
   error?: string;
   clearable?: boolean;
   placeholder?: string;
+  // Where the picker opens when there's no value yet. Anchoring to the tour's
+  // date range keeps the year correct so a new stop doesn't default to today.
+  anchorDate?: string | null;
 };
 
 export function DateField({
@@ -22,9 +25,10 @@ export function DateField({
   error,
   clearable = false,
   placeholder = 'Select a date',
+  anchorDate,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const pickerValue = value ? isoToDate(value) : new Date();
+  const pickerValue = value ? isoToDate(value) : anchorDate ? isoToDate(anchorDate) : new Date();
 
   return (
     <View style={styles.container}>
