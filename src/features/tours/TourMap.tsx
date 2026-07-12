@@ -1,8 +1,9 @@
 import Mapbox, { Camera, LineLayer, MapView, PointAnnotation, ShapeSource } from '@rnmapbox/maps';
+import type { Feature, FeatureCollection, LineString } from 'geojson';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { env } from '@/lib/env';
-import { colors, radius } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 if (env.mapboxToken) {
   Mapbox.setAccessToken(env.mapboxToken);
@@ -13,18 +14,23 @@ export type RouteStop = {
   name: string;
   latitude: number;
   longitude: number;
+  kind: 'show' | 'off';
+  // False for a scheduled show whose venue isn't booked yet (placed by city).
+  booked: boolean;
 };
 
 type Props = {
   stops: RouteStop[];
 };
 
-function boundsFor(coordinates: [number, number][]) {
+type Coord = [number, number];
+
+function boundsFor(coordinates: Coord[]) {
   const lngs = coordinates.map((c) => c[0]);
   const lats = coordinates.map((c) => c[1]);
   return {
-    ne: [Math.max(...lngs), Math.max(...lats)] as [number, number],
-    sw: [Math.min(...lngs), Math.min(...lats)] as [number, number],
+    ne: [Math.max(...lngs), Math.max(...lats)] as Coord,
+    sw: [Math.min(...lngs), Math.min(...lats)] as Coord,
     paddingTop: 48,
     paddingBottom: 48,
     paddingLeft: 48,
@@ -32,14 +38,37 @@ function boundsFor(coordinates: [number, number][]) {
   };
 }
 
-// Renders the tour's shows on a Mapbox map: a numbered marker per stop and a
-// line connecting them in date order. Returns null when Mapbox isn't configured
-// or no shows have coordinates yet.
+function lineSegment(a: Coord, b: Coord): Feature<LineString> {
+  return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [a, b] } };
+}
+
+function collection(features: Feature<LineString>[]): FeatureCollection<LineString> {
+  return { type: 'FeatureCollection', features };
+}
+
+// Renders the tour's located stops on a Mapbox map: solid numbered markers for
+// shows, hollow markers for off days, and a route line in date order — solid
+// between shows, dashed for travel/rest segments touching an off day. Returns
+// null when Mapbox isn't configured or nothing has coordinates yet.
 export function TourMap({ stops }: Props) {
   if (!env.mapboxToken || stops.length === 0) return null;
 
-  const coordinates = stops.map((s) => [s.longitude, s.latitude] as [number, number]);
+  const coordinates = stops.map((s) => [s.longitude, s.latitude] as Coord);
   const single = coordinates.length === 1;
+  const hasOffDays = stops.some((s) => s.kind === 'off');
+  const hasTbd = stops.some((s) => s.kind === 'show' && !s.booked);
+
+  // Split the route so segments touching an off day render dashed (travel/rest).
+  const solid: Feature<LineString>[] = [];
+  const dashed: Feature<LineString>[] = [];
+  for (let i = 0; i < stops.length - 1; i += 1) {
+    const seg = lineSegment(coordinates[i], coordinates[i + 1]);
+    if (stops[i].kind === 'off' || stops[i + 1].kind === 'off') dashed.push(seg);
+    else solid.push(seg);
+  }
+
+  // Shows are numbered in order; off days are not numbered.
+  let showNumber = 0;
 
   return (
     <View style={styles.container}>
@@ -50,28 +79,83 @@ export function TourMap({ stops }: Props) {
           <Camera bounds={boundsFor(coordinates)} animationDuration={0} />
         )}
 
-        {coordinates.length >= 2 && (
-          <ShapeSource
-            id="tour-route"
-            shape={{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }}
-          >
+        {solid.length > 0 && (
+          <ShapeSource id="tour-route-solid" shape={collection(solid)}>
             <LineLayer
-              id="tour-route-line"
+              id="tour-route-solid-line"
               style={{ lineColor: colors.primary, lineWidth: 2, lineCap: 'round', lineJoin: 'round' }}
             />
           </ShapeSource>
         )}
 
-        {stops.map((stop, index) => (
-          <PointAnnotation key={stop.id} id={stop.id} coordinate={[stop.longitude, stop.latitude]}>
-            <View style={styles.marker}>
-              <Text variant="caption" style={styles.markerLabel}>
-                {index + 1}
+        {dashed.length > 0 && (
+          <ShapeSource id="tour-route-dashed" shape={collection(dashed)}>
+            <LineLayer
+              id="tour-route-dashed-line"
+              style={{
+                lineColor: colors.textMuted,
+                lineWidth: 2,
+                lineDasharray: [2, 2],
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
+          </ShapeSource>
+        )}
+
+        {stops.map((stop) => {
+          const isOff = stop.kind === 'off';
+          const isTbd = !isOff && !stop.booked;
+          if (!isOff) showNumber += 1;
+          const markerStyle = isOff
+            ? styles.offMarker
+            : isTbd
+              ? styles.tbdMarker
+              : styles.showMarker;
+          return (
+            <PointAnnotation
+              key={stop.id}
+              id={stop.id}
+              coordinate={[stop.longitude, stop.latitude]}
+            >
+              <View style={[styles.marker, markerStyle]}>
+                {!isOff && (
+                  <Text variant="caption" style={[styles.markerLabel, isTbd && styles.tbdLabel]}>
+                    {String(showNumber)}
+                  </Text>
+                )}
+              </View>
+            </PointAnnotation>
+          );
+        })}
+      </MapView>
+
+      {(hasOffDays || hasTbd) && (
+        <View style={styles.legend}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, styles.showMarker]} />
+            <Text variant="caption" color="textMuted">
+              Show
+            </Text>
+          </View>
+          {hasTbd && (
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.tbdMarker]} />
+              <Text variant="caption" color="textMuted">
+                Venue TBD
               </Text>
             </View>
-          </PointAnnotation>
-        ))}
-      </MapView>
+          )}
+          {hasOffDays && (
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.offMarker]} />
+              <Text variant="caption" color="textMuted">
+                Off day
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -92,14 +176,52 @@ const styles = StyleSheet.create({
     height: 22,
     paddingHorizontal: 4,
     borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  showMarker: {
     backgroundColor: colors.primary,
     borderWidth: 2,
     borderColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  tbdMarker: {
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  offMarker: {
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.textMuted,
   },
   markerLabel: {
     color: colors.surface,
     fontWeight: '700',
+  },
+  tbdLabel: {
+    color: colors.primary,
+  },
+  legend: {
+    position: 'absolute',
+    left: spacing.sm,
+    bottom: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.md,
+    backgroundColor: colors.background,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  legendDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
   },
 });

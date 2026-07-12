@@ -33,10 +33,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    void (async () => {
+      // Validate against the server — getSession() alone can return a stale JWT
+      // after `supabase db reset` wiped auth.users while AsyncStorage kept the session.
+      const { data: userData, error } = await supabase.auth.getUser();
+      if (error || !userData.user) {
+        await supabase.auth.signOut();
+        queryClient.clear();
+        await asyncStoragePersister.removeClient();
+        setSession(null);
+      } else {
+        const { data } = await supabase.auth.getSession();
+        setSession(data.session);
+      }
       setInitializing(false);
-    });
+    })();
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);

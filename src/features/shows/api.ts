@@ -1,5 +1,14 @@
 import { getOrCreateVenue } from '@/features/venues/api';
+import { geocodeVenue } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
+
+// A tour's itinerary is a list of "stops" (stored in the `shows` table). A stop's
+// location can be, in decreasing specificity:
+//   * a booked venue (shows) — references the shared `venues` table
+//   * an inline city/place (city-only shows with a venue TBD, or off days) — held
+//     on the row itself and geocoded so it still lands on the map
+//   * nothing yet (a bare date)
+export type StopKind = 'show' | 'off';
 
 export type ShowVenue = {
   id: string;
@@ -9,40 +18,122 @@ export type ShowVenue = {
   longitude: number | null;
 };
 
-export type ShowWithVenue = {
-  id: string;
-  date: string;
-  created_at: string;
-  created_by: string | null;
-  venue: ShowVenue;
+// A point on the map/timeline, normalized across venues, city-only shows, and off
+// days. `name` is a venue name, an off-day note/hotel, or "Venue TBD" for a
+// city-only show. `booked` is true only when it comes from a real venue.
+export type StopLocation = {
+  name: string;
+  city: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  booked: boolean;
 };
 
-export type ShowDetail = ShowWithVenue & { tour_id: string; venue: ShowVenue & { address: string | null } };
+export type TourStop = {
+  id: string;
+  date: string;
+  kind: StopKind;
+  created_at: string;
+  created_by: string | null;
+  label: string | null; // off-day note / hotel name; null for shows
+  venueId: string | null;
+  location: StopLocation | null;
+};
 
-const venueSelect = 'id, name, city, latitude, longitude';
+const stopSelect =
+  'id, date, kind, label, city, latitude, longitude, address, created_at, created_by, venue:venues(id, name, city, latitude, longitude)';
 
-export async function listShows(tourId: string): Promise<ShowWithVenue[]> {
+type StopRow = {
+  id: string;
+  date: string;
+  kind: StopKind;
+  label: string | null;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  created_at: string;
+  created_by: string | null;
+  venue: ShowVenue | null;
+};
+
+function toStop(row: StopRow): TourStop {
+  let location: StopLocation | null = null;
+  if (row.venue) {
+    location = {
+      name: row.venue.name,
+      city: row.venue.city,
+      address: null,
+      latitude: row.venue.latitude,
+      longitude: row.venue.longitude,
+      booked: true,
+    };
+  } else if (row.city != null || row.latitude != null || row.label != null) {
+    const fallback = row.kind === 'off' ? row.city || 'Off day' : 'Venue TBD';
+    location = {
+      name: row.label || fallback,
+      city: row.city ?? '',
+      address: row.address,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      booked: false,
+    };
+  }
+
+  return {
+    id: row.id,
+    date: row.date,
+    kind: row.kind,
+    created_at: row.created_at,
+    created_by: row.created_by,
+    label: row.label,
+    venueId: row.venue?.id ?? null,
+    location,
+  };
+}
+
+export async function listStops(tourId: string): Promise<TourStop[]> {
   const { data, error } = await supabase
     .from('shows')
-    .select(`id, date, created_at, created_by, venue:venues(${venueSelect})`)
+    .select(stopSelect)
     .eq('tour_id', tourId)
     .order('date', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as unknown as ShowWithVenue[];
+  return ((data ?? []) as unknown as StopRow[]).map(toStop);
 }
 
-export async function getShow(showId: string): Promise<ShowDetail> {
+export type StopDetail = {
+  id: string;
+  tour_id: string;
+  date: string;
+  kind: StopKind;
+  created_by: string | null;
+  venue: (ShowVenue & { address: string | null }) | null;
+  label: string | null;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+};
+
+export async function getStop(stopId: string): Promise<StopDetail> {
   const { data, error } = await supabase
     .from('shows')
-    .select(`id, date, created_at, created_by, tour_id, venue:venues(${venueSelect}, address)`)
-    .eq('id', showId)
+    .select(
+      'id, tour_id, date, kind, label, city, latitude, longitude, address, created_by, venue:venues(id, name, city, latitude, longitude, address)',
+    )
+    .eq('id', stopId)
     .single();
   if (error) throw error;
-  return data as unknown as ShowDetail;
+  return data as unknown as StopDetail;
 }
 
+// --- Shows ------------------------------------------------------------------
+
 export type VenueFields = {
-  venueName: string;
+  // Empty when the venue isn't booked yet; the city still places it on the map.
+  venueName?: string | null;
   venueCity: string;
   latitude?: number | null;
   longitude?: number | null;
@@ -55,23 +146,45 @@ export type CreateShowInput = VenueFields & {
   date: string;
 };
 
+// A booked venue lives in the shared `venues` table (deduped, coordinates reused
+// across tours). A city-only show ("venue TBD") stores just its geocoded city
+// inline so it still appears on the map. Returns the columns to write for each.
+async function resolveShowLocation(input: VenueFields & { userId: string }) {
+  const name = input.venueName?.trim();
+  if (name) {
+    const venueId = await getOrCreateVenue({
+      name,
+      city: input.venueCity,
+      userId: input.userId,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      address: input.address,
+    });
+    return { venue_id: venueId, city: null, latitude: null, longitude: null, address: null };
+  }
+
+  // No venue yet: geocode the known city so there's still a pin. Best-effort.
+  const geo = await geocodeVenue(input.venueCity, '').catch(() => null);
+  return {
+    venue_id: null as string | null,
+    city: input.venueCity.trim(),
+    latitude: geo?.latitude ?? null,
+    longitude: geo?.longitude ?? null,
+    address: null,
+  };
+}
+
 export async function createShow(input: CreateShowInput): Promise<{ id: string }> {
-  const venueId = await getOrCreateVenue({
-    name: input.venueName,
-    city: input.venueCity,
-    userId: input.userId,
-    latitude: input.latitude,
-    longitude: input.longitude,
-    address: input.address,
-  });
+  const location = await resolveShowLocation(input);
 
   const { data, error } = await supabase
     .from('shows')
     .insert({
       tour_id: input.tourId,
       created_by: input.userId,
-      venue_id: venueId,
       date: input.date,
+      kind: 'show',
+      ...location,
     })
     .select('id')
     .single();
@@ -87,24 +200,94 @@ export type UpdateShowInput = VenueFields & {
 };
 
 export async function updateShow(input: UpdateShowInput): Promise<void> {
-  const venueId = await getOrCreateVenue({
-    name: input.venueName,
-    city: input.venueCity,
-    userId: input.userId,
-    latitude: input.latitude,
-    longitude: input.longitude,
-    address: input.address,
-  });
+  const location = await resolveShowLocation(input);
 
   const { error } = await supabase
     .from('shows')
-    .update({ venue_id: venueId, date: input.date })
+    .update({ date: input.date, ...location })
     .eq('id', input.showId);
 
   if (error) throw error;
 }
 
-export async function deleteShow(showId: string): Promise<void> {
-  const { error } = await supabase.from('shows').delete().eq('id', showId);
+// --- Off days ---------------------------------------------------------------
+
+export type OffDayFields = {
+  label?: string | null;
+  city?: string | null;
+  // Captured when a place (hotel/address) is picked from Mapbox search.
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+};
+
+export type CreateOffDayInput = OffDayFields & {
+  userId: string;
+  tourId: string;
+  date: string;
+};
+
+// Resolves coordinates for an off day: prefer the ones from a picked place,
+// otherwise geocode the typed city. Best-effort — a failure still saves the day
+// (it just won't have a pin).
+async function resolveOffLocation(input: OffDayFields) {
+  const city = input.city?.trim() || null;
+  let latitude = input.latitude ?? null;
+  let longitude = input.longitude ?? null;
+
+  if ((latitude == null || longitude == null) && city) {
+    const geo = await geocodeVenue(city, '').catch(() => null);
+    latitude = geo?.latitude ?? null;
+    longitude = geo?.longitude ?? null;
+  }
+
+  return {
+    label: input.label?.trim() || null,
+    city,
+    address: input.address?.trim() || null,
+    latitude,
+    longitude,
+  };
+}
+
+export async function createOffDay(input: CreateOffDayInput): Promise<{ id: string }> {
+  const location = await resolveOffLocation(input);
+
+  const { data, error } = await supabase
+    .from('shows')
+    .insert({
+      tour_id: input.tourId,
+      created_by: input.userId,
+      venue_id: null,
+      date: input.date,
+      kind: 'off',
+      ...location,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export type UpdateOffDayInput = OffDayFields & {
+  userId: string;
+  stopId: string;
+  date: string;
+};
+
+export async function updateOffDay(input: UpdateOffDayInput): Promise<void> {
+  const location = await resolveOffLocation(input);
+
+  const { error } = await supabase
+    .from('shows')
+    .update({ date: input.date, ...location })
+    .eq('id', input.stopId);
+
+  if (error) throw error;
+}
+
+export async function deleteStop(stopId: string): Promise<void> {
+  const { error } = await supabase.from('shows').delete().eq('id', stopId);
   if (error) throw error;
 }

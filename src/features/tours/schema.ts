@@ -13,6 +13,7 @@ export const createTourSchema = z
     title: z.string().trim().optional(),
     startDate: optionalIsoDate,
     endDate: optionalIsoDate,
+    visibility: z.enum(['public', 'friends', 'private']),
   })
   // ISO date strings compare correctly as plain strings.
   .refine((values) => !values.startDate || !values.endDate || values.endDate >= values.startDate, {
@@ -21,3 +22,13 @@ export const createTourSchema = z
   });
 
 export type CreateTourValues = z.infer<typeof createTourSchema>;
+
+export const VISIBILITY_OPTIONS: {
+  value: CreateTourValues['visibility'];
+  label: string;
+  hint: string;
+}[] = [
+  { value: 'public', label: 'Public', hint: 'Anyone can find and join' },
+  { value: 'friends', label: 'Friends', hint: 'Your friends and members can see it' },
+  { value: 'private', label: 'Private', hint: 'Only members can see it' },
+];

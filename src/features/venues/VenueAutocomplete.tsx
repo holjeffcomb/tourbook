@@ -18,9 +18,19 @@ type Props = {
   onBlur?: () => void;
   error?: string;
   onSelectVenue: (venue: SelectedVenue) => void;
+  label?: string;
+  placeholder?: string;
 };
 
-export function VenueAutocomplete({ value, onChangeText, onBlur, error, onSelectVenue }: Props) {
+export function VenueAutocomplete({
+  value,
+  onChangeText,
+  onBlur,
+  error,
+  onSelectVenue,
+  label = 'Venue',
+  placeholder,
+}: Props) {
   const sessionToken = useRef(makeSessionToken());
   const debounced = useDebouncedValue(value, 250);
   const { data } = usePlaceSuggestions(debounced, sessionToken.current);
@@ -33,9 +43,10 @@ export function VenueAutocomplete({ value, onChangeText, onBlur, error, onSelect
 
   return (
     <AutocompleteField
-      label="Venue"
+      label={label}
       placeholder={
-        isMapboxConfigured() ? 'e.g. Red Rocks Amphitheatre' : 'Enter a venue name'
+        placeholder ??
+        (isMapboxConfigured() ? 'e.g. Red Rocks Amphitheatre' : 'Enter a venue name')
       }
       value={value}
       onChangeText={onChangeText}

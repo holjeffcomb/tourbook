@@ -14,6 +14,12 @@ import {
   updateTour,
   type CreateTourInput,
 } from '@/features/tours/api';
+import {
+  createImportedTour,
+  parseTourText,
+  type ImportStop,
+  type ParsedTour,
+} from '@/features/tours/import';
 
 export const toursKey = ['tours'] as const;
 export const tourKey = (id: string) => ['tours', id] as const;
@@ -69,6 +75,7 @@ type UpdateTourValues = {
   title?: string;
   startDate?: string | null;
   endDate?: string | null;
+  visibility?: 'public' | 'friends' | 'private';
 };
 
 export function useUpdateTour(tourId: string) {
@@ -85,6 +92,7 @@ export function useUpdateTour(tourId: string) {
         title: values.title,
         startDate: values.startDate,
         endDate: values.endDate,
+        visibility: values.visibility,
       });
       await updateMyRole(tourId, session.user.id, values.role ?? null);
     },
@@ -93,6 +101,25 @@ export function useUpdateTour(tourId: string) {
       queryClient.invalidateQueries({ queryKey: tourKey(tourId) });
       queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
     },
+  });
+}
+
+export function useParseTour() {
+  return useMutation<ParsedTour, Error, string>({
+    mutationFn: (text: string) => parseTourText(text),
+  });
+}
+
+export function useCreateImportedTour() {
+  const queryClient = useQueryClient();
+  const { session } = useAuth();
+
+  return useMutation({
+    mutationFn: (values: { actName: string; tourTitle: string | null; stops: ImportStop[] }) => {
+      if (!session) throw new Error('You must be signed in to import a tour');
+      return createImportedTour({ ...values, userId: session.user.id });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
   });
 }
 

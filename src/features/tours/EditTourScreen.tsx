@@ -43,6 +43,7 @@ export function EditTourScreen() {
     title: tour.title ?? '',
     startDate: tour.start_date,
     endDate: tour.end_date,
+    visibility: tour.visibility,
   };
 
   return (

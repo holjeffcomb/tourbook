@@ -40,9 +40,6 @@ export function TourListScreen() {
     <Screen>
       <View style={styles.header}>
         <Text variant="title">Tours</Text>
-        <Text variant="body" color="primary" onPress={() => router.push('/profile')}>
-          Profile
-        </Text>
       </View>
 
       <View style={styles.content}>

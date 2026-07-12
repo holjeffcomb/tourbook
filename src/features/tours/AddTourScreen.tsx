@@ -111,11 +111,21 @@ export function AddTourScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text variant="title">Add a tour</Text>
           <Text color="textMuted">
             Search for the act. If the tour already exists, join it so everyone shares one record.
           </Text>
+
+          <Button
+            title="Paste tour text (AI import)"
+            variant="secondary"
+            onPress={() => router.push('/tours/import')}
+          />
 
           <ActAutocomplete
             value={actName}

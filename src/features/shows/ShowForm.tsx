@@ -19,9 +19,17 @@ type Props = {
   defaultValues: CreateShowValues;
   onSubmit: (values: CreateShowValues) => Promise<void>;
   onDelete?: () => void;
+  dateAnchor?: string | null;
 };
 
-export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete }: Props) {
+export function ShowForm({
+  title,
+  submitLabel,
+  defaultValues,
+  onSubmit,
+  onDelete,
+  dateAnchor,
+}: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const { control, handleSubmit, formState, setValue } = useForm<CreateShowValues>({
@@ -50,8 +58,15 @@ export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.form}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text variant="title">{title}</Text>
+          <Text color="textMuted">
+            No venue booked yet? Leave it blank — the city still places the show on the map.
+          </Text>
 
           <Controller
             control={control}
@@ -62,6 +77,7 @@ export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete
                 value={field.value || null}
                 onChange={(value) => field.onChange(value ?? '')}
                 error={fieldState.error?.message}
+                anchorDate={dateAnchor}
               />
             )}
           />
@@ -71,7 +87,8 @@ export function ShowForm({ title, submitLabel, defaultValues, onSubmit, onDelete
             name="venueName"
             render={({ field, fieldState }) => (
               <VenueAutocomplete
-                value={field.value}
+                label="Venue (optional)"
+                value={field.value ?? ''}
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
