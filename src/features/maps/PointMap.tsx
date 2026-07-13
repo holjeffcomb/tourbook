@@ -37,7 +37,12 @@ export function PointMap({
 
   return (
     <View style={[styles.container, { height }]}>
-      <MapView style={styles.map} styleURL={mapStyleUrl(scheme, variant)} scaleBarEnabled={false}>
+      <MapView
+        key={scheme}
+        style={styles.map}
+        styleURL={mapStyleUrl(scheme, variant)}
+        scaleBarEnabled={false}
+      >
         <Camera centerCoordinate={center} zoomLevel={zoom} animationDuration={0} />
         <PointAnnotation id="place" coordinate={center}>
           <View style={styles.markerOuter}>

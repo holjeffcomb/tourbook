@@ -44,6 +44,7 @@ export function NearMissMap({ nearMiss, height = 200 }: Props) {
   return (
     <View style={[styles.container, { height }]}>
       <MapView
+        key={scheme}
         style={styles.map}
         styleURL={scheme === 'dark' ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light}
         scaleBarEnabled={false}

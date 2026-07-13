@@ -2,14 +2,16 @@ import {
   Camera,
   CircleLayer,
   HeatmapLayer,
+  LineLayer,
   MapView,
   ShapeSource,
   SymbolLayer,
   type CircleLayerStyle,
   type HeatmapLayerStyle,
+  type LineLayerStyle,
   type SymbolLayerStyle,
 } from '@rnmapbox/maps';
-import type { Feature, FeatureCollection, Point } from 'geojson';
+import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import {
   useMemo,
   useRef,
@@ -20,6 +22,7 @@ import {
 } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
+import { arcedPath, densifyPath } from '@/lib/geo';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
 import { expr, isMapboxConfigured, mapStyleUrl, withAlpha } from './mapConfig';
@@ -38,6 +41,16 @@ export type MapPlace = {
   tourCount?: number;
   lastVisit?: string | null;
 };
+
+// An ordered tour route: [lng, lat] pairs in travel order. Rendered as a line in
+// the routes overlay, and densified into points so overlapping routes read hot.
+export type RouteLine = {
+  id: string;
+  coordinates: [number, number][];
+};
+
+/** Which overlay the passport map is showing. */
+export type PlacesMapMode = 'places' | 'routes';
 
 // Everything tunable about the passport map lives here so future sessions can
 // adjust the look (or expose UI controls) without touching render code.
@@ -71,6 +84,19 @@ export type PlacesMapConfig = {
     opacity: number;
     strokeWidth: number;
   };
+  routes: {
+    lineWidth: number;
+    lineOpacity: number;
+    /** Dot marker radius at each stop along the routes (0 hides them). */
+    dotRadius: number;
+    /** Curve segments as arcs (like flight paths) instead of straight lines. */
+    arc: { enabled: boolean; curvature: number; segments: number };
+    /** Overlay a density heat layer under the lines (overlaps read hotter). */
+    showHeat: boolean;
+    /** Spacing (miles) used to sample points along each route for the heat. */
+    sampleMiles: number;
+    heat: { radius: number; intensity: number; opacity: number };
+  };
 };
 
 export const defaultPlacesMapConfig: PlacesMapConfig = {
@@ -83,6 +109,18 @@ export const defaultPlacesMapConfig: PlacesMapConfig = {
   fallbackCamera: { centerCoordinate: [-98.5, 39.8], zoomLevel: 2.5 },
   heatmap: { radius: 26, intensity: 1, opacity: 0.7 },
   points: { minRadius: 6, maxRadius: 18, maxWeight: 8, opacity: 0.9, strokeWidth: 1.5 },
+  routes: {
+    // Thin, translucent lines. Each tour is its own layer so overlapping routes
+    // composite into higher opacity — a line-based heat effect.
+    lineWidth: 0.75,
+    lineOpacity: 0.5,
+    dotRadius: 2,
+    arc: { enabled: true, curvature: 0.2, segments: 24 },
+    // Optional fuzzy density heat underlay; off by default (the lines carry it).
+    showHeat: false,
+    sampleMiles: 35,
+    heat: { radius: 18, intensity: 1, opacity: 0.75 },
+  },
 };
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
@@ -96,6 +134,12 @@ function mergeConfig(base: PlacesMapConfig, override?: DeepPartial<PlacesMapConf
     fallbackCamera: { ...base.fallbackCamera, ...override.fallbackCamera },
     heatmap: { ...base.heatmap, ...override.heatmap },
     points: { ...base.points, ...override.points },
+    routes: {
+      ...base.routes,
+      ...override.routes,
+      arc: { ...base.routes.arc, ...override.routes?.arc },
+      heat: { ...base.routes.heat, ...override.routes?.heat },
+    },
   };
 }
 
@@ -201,6 +245,55 @@ function buildSelectedStyle(cfg: PlacesMapConfig, colors: ThemeColors): CircleLa
   };
 }
 
+// A translucent route line. Kept semi-transparent so the heat layer beneath
+// shows through where routes stack up.
+function buildRouteLineStyle(cfg: PlacesMapConfig, colors: ThemeColors): LineLayerStyle {
+  return {
+    lineColor: colors.accent,
+    lineWidth: cfg.routes.lineWidth,
+    lineOpacity: cfg.routes.lineOpacity,
+    lineCap: 'round',
+    lineJoin: 'round',
+  };
+}
+
+// Small dot at each stop along the routes, for definition on the thin lines.
+function buildRouteDotStyle(cfg: PlacesMapConfig, colors: ThemeColors): CircleLayerStyle {
+  return {
+    circleRadius: cfg.routes.dotRadius,
+    circleColor: colors.accent,
+    circleOpacity: 0.9,
+    circleStrokeColor: colors.surface,
+    circleStrokeWidth: 0.5,
+  };
+}
+
+// Density heat from points sampled along the routes: the more routes overlap in
+// an area, the denser the points and the hotter the color ramp.
+function buildRouteHeatStyle(cfg: PlacesMapConfig, colors: ThemeColors): HeatmapLayerStyle {
+  return {
+    heatmapWeight: 1,
+    heatmapIntensity: cfg.routes.heat.intensity,
+    heatmapRadius: cfg.routes.heat.radius,
+    heatmapColor: expr([
+      'interpolate',
+      ['linear'],
+      ['heatmap-density'],
+      0,
+      'rgba(0, 0, 0, 0)',
+      0.2,
+      withAlpha(colors.primary, 0.35),
+      0.5,
+      colors.primary,
+      0.8,
+      colors.accent,
+      1,
+      colors.warning,
+    ]),
+    heatmapOpacity: cfg.routes.heat.opacity,
+  };
+}
+
 function formatVisitDate(date: string | null | undefined): string | null {
   if (!date) return null;
   const parsed = new Date(`${date}T00:00:00`);
@@ -210,6 +303,8 @@ function formatVisitDate(date: string | null | undefined): string | null {
 
 type Props = {
   places: MapPlace[];
+  /** Tour routes for the "Routes" overlay. When empty, the toggle is hidden. */
+  routes?: RouteLine[];
   height?: number;
   config?: DeepPartial<PlacesMapConfig>;
   /** Also fired (in addition to the built-in detail card) when a place is tapped. */
@@ -220,11 +315,13 @@ type Props = {
 // blob when zoomed out; tapping a blob zooms in to break it apart, and tapping
 // an individual marker reveals a detail card. Sizes scale with visit frequency.
 // A customizable foundation — tweak `config`, or the style builders above.
-export function PlacesMap({ places, height = 320, config, onSelectPlace }: Props) {
+export function PlacesMap({ places, routes = [], height = 320, config, onSelectPlace }: Props) {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
   const { scheme } = useTheme();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Default to Routes; falls back to Places automatically when no routes exist.
+  const [mode, setMode] = useState<PlacesMapMode>('routes');
   const cameraRef = useRef<ComponentRef<typeof Camera>>(null);
   const sourceRef = useRef<ComponentRef<typeof ShapeSource>>(null);
 
@@ -262,12 +359,47 @@ export function PlacesMap({ places, height = 320, config, onSelectPlace }: Props
     return { bounds: boundsFor(places) };
   }, [cfg, places]);
 
+  const routeLines = useMemo<FeatureCollection<LineString>>(
+    () => ({
+      type: 'FeatureCollection',
+      features: routes.map((r) => ({
+        type: 'Feature',
+        id: r.id,
+        properties: { routeId: r.id },
+        geometry: {
+          type: 'LineString',
+          coordinates: cfg.routes.arc.enabled
+            ? arcedPath(r.coordinates, cfg.routes.arc.curvature, cfg.routes.arc.segments)
+            : r.coordinates,
+        },
+      })),
+    }),
+    [routes, cfg.routes.arc],
+  );
+
+  const routeHeatPoints = useMemo<FeatureCollection<Point>>(() => {
+    const features: Feature<Point>[] = [];
+    for (const route of routes) {
+      for (const [lng, lat] of densifyPath(route.coordinates, cfg.routes.sampleMiles)) {
+        features.push({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Point', coordinates: [lng, lat] },
+        });
+      }
+    }
+    return { type: 'FeatureCollection', features };
+  }, [routes, cfg.routes.sampleMiles]);
+
   const heatmapStyle = useMemo(() => buildHeatmapStyle(cfg, colors), [cfg, colors]);
   const clusterStyle = useMemo(() => buildClusterStyle(colors), [colors]);
   const pointStyle = useMemo(() => buildPointStyle(cfg, colors), [cfg, colors]);
   const selectedStyle = useMemo(() => buildSelectedStyle(cfg, colors), [cfg, colors]);
   const clusterCountStyle = useMemo(() => buildCountStyle(colors, 'totalVisits'), [colors]);
   const pointCountStyle = useMemo(() => buildCountStyle(colors, 'weight'), [colors]);
+  const routeLineStyle = useMemo(() => buildRouteLineStyle(cfg, colors), [cfg, colors]);
+  const routeDotStyle = useMemo(() => buildRouteDotStyle(cfg, colors), [cfg, colors]);
+  const routeHeatStyle = useMemo(() => buildRouteHeatStyle(cfg, colors), [cfg, colors]);
 
   if (!isMapboxConfigured) {
     return (
@@ -279,9 +411,16 @@ export function PlacesMap({ places, height = 320, config, onSelectPlace }: Props
     );
   }
 
+  const canShowRoutes = routes.length > 0;
+  const routesMode = canShowRoutes && mode === 'routes';
   const showHeatmap = cfg.showHeatmap && places.length >= cfg.heatmapMinPlaces;
   const clustered = cfg.cluster.enabled;
-  const selected = selectedId ? placesById.get(selectedId) : null;
+  const selected = !routesMode && selectedId ? placesById.get(selectedId) : null;
+
+  const switchMode = (next: PlacesMapMode) => {
+    setMode(next);
+    if (next === 'routes') setSelectedId(null);
+  };
 
   const handlePress = async (event: { features: Feature[] }) => {
     const feature = event.features?.[0];
@@ -361,14 +500,43 @@ export function PlacesMap({ places, height = 320, config, onSelectPlace }: Props
     );
   }
 
-  return (
-    <View style={[styles.container, { height }]}>
-      <MapView style={styles.map} styleURL={mapStyleUrl(scheme, 'minimal')} scaleBarEnabled={false}>
-        <Camera ref={cameraRef} defaultSettings={initialCamera} animationDuration={0} />
+  // One layer per tour so overlapping routes stack their opacity (the heat read).
+  const routeLayers: ReactElement[] = routes.map((route) => (
+    <LineLayer
+      key={`route-${route.id}`}
+      id={`route-line-${route.id}`}
+      filter={expr(['==', ['get', 'routeId'], route.id])}
+      style={routeLineStyle}
+    />
+  ));
 
+  return (
+    <View style={styles.wrapper}>
+      {canShowRoutes && (
+        <View style={styles.toggle}>
+          <ModeButton label="Places" active={!routesMode} onPress={() => switchMode('places')} />
+          <ModeButton label="Routes" active={routesMode} onPress={() => switchMode('routes')} />
+        </View>
+      )}
+
+      <View style={[styles.container, { height }]}>
+        {/* Remount on theme change: switching styleURL live races layer updates
+            against the style reload ("Layer … is not in style"). */}
+        <MapView
+          key={scheme}
+          style={styles.map}
+          styleURL={mapStyleUrl(scheme, 'minimal')}
+          scaleBarEnabled={false}
+        >
+          <Camera ref={cameraRef} defaultSettings={initialCamera} animationDuration={0} />
+
+        {/* Sources stay mounted across modes (remounting a clustered source can
+            drop it); only their child layers toggle. */}
         {showHeatmap && (
           <ShapeSource id="places-heat" shape={featureCollection}>
-            <HeatmapLayer id="places-heatmap" style={heatmapStyle} />
+            {routesMode
+              ? []
+              : [<HeatmapLayer key="places-heatmap" id="places-heatmap" style={heatmapStyle} />]}
           </ShapeSource>
         )}
 
@@ -383,7 +551,29 @@ export function PlacesMap({ places, height = 320, config, onSelectPlace }: Props
             clusterProperties={CLUSTER_PROPERTIES}
             onPress={handlePress}
           >
-            {pointLayers}
+            {routesMode ? [] : pointLayers}
+          </ShapeSource>
+        )}
+
+        {canShowRoutes && cfg.routes.showHeat && routeHeatPoints.features.length > 0 && (
+          <ShapeSource id="routes-heat" shape={routeHeatPoints}>
+            {routesMode
+              ? [<HeatmapLayer key="routes-heatmap" id="routes-heatmap" style={routeHeatStyle} />]
+              : []}
+          </ShapeSource>
+        )}
+
+        {canShowRoutes && (
+          <ShapeSource id="routes" shape={routeLines}>
+            {routesMode ? routeLayers : []}
+          </ShapeSource>
+        )}
+
+        {canShowRoutes && cfg.routes.dotRadius > 0 && (
+          <ShapeSource id="route-dots" shape={featureCollection}>
+            {routesMode
+              ? [<CircleLayer key="route-dots" id="route-dots-layer" style={routeDotStyle} />]
+              : []}
           </ShapeSource>
         )}
       </MapView>
@@ -430,7 +620,32 @@ export function PlacesMap({ places, height = 320, config, onSelectPlace }: Props
           </View>
         </View>
       )}
+      </View>
     </View>
+  );
+}
+
+function ModeButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      style={[styles.modeButton, active && styles.modeButtonActive]}
+    >
+      <Text variant="caption" color={active ? 'onPrimary' : 'textSecondary'}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -450,6 +665,9 @@ function DetailStat({ value, label, wide }: { value: string; label: string; wide
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
+    wrapper: {
+      gap: spacing.sm,
+    },
     container: {
       borderRadius: radius.md,
       overflow: 'hidden',
@@ -467,6 +685,23 @@ const createStyles = (colors: ThemeColors) =>
     },
     placeholderText: {
       textAlign: 'center',
+    },
+    toggle: {
+      alignSelf: 'center',
+      flexDirection: 'row',
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 2,
+    },
+    modeButton: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: radius.full,
+    },
+    modeButtonActive: {
+      backgroundColor: colors.primary,
     },
     detailCard: {
       position: 'absolute',

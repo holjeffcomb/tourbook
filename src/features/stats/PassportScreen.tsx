@@ -1,7 +1,7 @@
 import { useQueries } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { AppHeader } from '@/components/AppHeader';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -12,13 +12,15 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { PlacesMap } from '@/features/maps/PlacesMap';
 import { listStops } from '@/features/shows/api';
 import { showsKey } from '@/features/shows/queries';
-import { computePassportStats, computeVisitedPlaces } from '@/features/stats/compute';
+import { computePassportStats, computeTourRoutes, computeVisitedPlaces } from '@/features/stats/compute';
 import type { TourStop } from '@/features/shows/api';
 import { listTourMembers } from '@/features/tours/api';
 import { membersKey, useTours } from '@/features/tours/queries';
 import { formatEarthLaps, formatMiles, formatPercent } from '@/lib/geo';
-import { spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors } from '@/theme/ThemeProvider';
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function PassportScreen() {
   const colors = useColors();
@@ -52,41 +54,68 @@ export function PassportScreen() {
   const isError =
     toursQuery.isError || stopsQueries.some((q) => q.isError) || membersQueries.some((q) => q.isError);
 
-  const stats = useMemo(() => {
-    if (!userId || !toursQuery.data) return null;
+  // null = All-time; otherwise a specific year.
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
-    const stopsByTourId: Record<string, TourStop[]> = {};
-    const membersByTourId: Record<string, Awaited<ReturnType<typeof listTourMembers>>> = {};
-
+  const stopsByTourIdAll = useMemo(() => {
+    const map: Record<string, TourStop[]> = {};
     tourIds.forEach((id, index) => {
-      if (stopsQueries[index]?.data) stopsByTourId[id] = stopsQueries[index].data!;
-      if (membersQueries[index]?.data) membersByTourId[id] = membersQueries[index].data!;
+      if (stopsQueries[index]?.data) map[id] = stopsQueries[index].data!;
     });
-
-    return computePassportStats({
-      userId,
-      tours: toursQuery.data.map((t) => ({ id: t.id, actName: t.act.name })),
-      stopsByTourId,
-      membersByTourId,
-    });
-  }, [userId, toursQuery.data, tourIds, stopsQueries, membersQueries]);
-
-  const places = useMemo(() => {
-    const stopsByTourId: Record<string, TourStop[]> = {};
-    tourIds.forEach((id, index) => {
-      if (stopsQueries[index]?.data) stopsByTourId[id] = stopsQueries[index].data!;
-    });
-    return computeVisitedPlaces(stopsByTourId).map((p) => ({
-      id: p.id,
-      latitude: p.latitude,
-      longitude: p.longitude,
-      weight: p.weight,
-      label: p.label,
-      city: p.city,
-      tourCount: p.tourIds.length,
-      lastVisit: p.lastVisit,
-    }));
+    return map;
   }, [tourIds, stopsQueries]);
+
+  const membersByTourId = useMemo(() => {
+    const map: Record<string, Awaited<ReturnType<typeof listTourMembers>>> = {};
+    tourIds.forEach((id, index) => {
+      if (membersQueries[index]?.data) map[id] = membersQueries[index].data!;
+    });
+    return map;
+  }, [tourIds, membersQueries]);
+
+  // Years present in the data, most recent first, for the switcher.
+  const years = useMemo(() => {
+    const set = new Set<number>();
+    for (const stops of Object.values(stopsByTourIdAll)) {
+      for (const s of stops) {
+        if (ISO_DATE.test(s.date)) set.add(Number(s.date.slice(0, 4)));
+      }
+    }
+    return [...set].sort((a, b) => b - a);
+  }, [stopsByTourIdAll]);
+
+  const { stats, places, routes } = useMemo(() => {
+    const filtered: Record<string, TourStop[]> = {};
+    for (const [id, stops] of Object.entries(stopsByTourIdAll)) {
+      filtered[id] =
+        selectedYear == null ? stops : stops.filter((s) => s.date.slice(0, 4) === String(selectedYear));
+    }
+
+    // All-time counts every tour; a year counts only tours active that year.
+    const tours = (toursQuery.data ?? [])
+      .filter((t) => selectedYear == null || (filtered[t.id]?.length ?? 0) > 0)
+      .map((t) => ({ id: t.id, actName: t.act.name }));
+
+    return {
+      stats: userId
+        ? computePassportStats({ userId, tours, stopsByTourId: filtered, membersByTourId })
+        : null,
+      places: computeVisitedPlaces(filtered).map((p) => ({
+        id: p.id,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        weight: p.weight,
+        label: p.label,
+        city: p.city,
+        tourCount: p.tourIds.length,
+        lastVisit: p.lastVisit,
+      })),
+      routes: computeTourRoutes(filtered).map((r) => ({
+        id: r.tourId,
+        coordinates: r.coordinates,
+      })),
+    };
+  }, [stopsByTourIdAll, membersByTourId, toursQuery.data, userId, selectedYear]);
 
   const refetchAll = () => {
     toursQuery.refetch();
@@ -115,16 +144,31 @@ export function PassportScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={styles.body}
-          showsVerticalScrollIndicator={false}
-        >
+        <>
+          {years.length > 0 && (
+            <YearSwitcher
+              years={years}
+              selected={selectedYear}
+              onSelect={setSelectedYear}
+              colors={colors}
+            />
+          )}
+          <ScrollView
+            style={styles.flex}
+            contentContainerStyle={styles.body}
+            showsVerticalScrollIndicator={false}
+          >
           {places.length > 0 && (
             <View style={styles.section}>
-              <PlacesMap places={places} height={320} />
+              <PlacesMap
+                key={selectedYear ?? 'all'}
+                places={places}
+                routes={routes}
+                height={320}
+              />
               <Text variant="caption" color="textMuted" style={styles.mapCaption}>
-                Everywhere you&apos;ve been — bigger dots mean more visits. Tap a place for details.
+                Everywhere you&apos;ve been — bigger dots mean more visits. Switch to Routes to see
+                your tours overlaid, hotter where they overlap.
               </Text>
             </View>
           )}
@@ -204,15 +248,84 @@ export function PassportScreen() {
             Distances are straight-line miles between stops with map pins. Country counts are
             inferred from city strings when available.
           </Text>
-        </ScrollView>
+          </ScrollView>
+        </>
       )}
     </Screen>
+  );
+}
+
+function YearSwitcher({
+  years,
+  selected,
+  onSelect,
+  colors,
+}: {
+  years: number[];
+  selected: number | null;
+  onSelect: (year: number | null) => void;
+  colors: ThemeColors;
+}) {
+  return (
+    <View style={styles.yearRow}>
+      <YearPill label="All time" active={selected == null} onPress={() => onSelect(null)} colors={colors} />
+      {years.map((year) => (
+        <YearPill
+          key={year}
+          label={String(year)}
+          active={selected === year}
+          onPress={() => onSelect(year)}
+          colors={colors}
+        />
+      ))}
+    </View>
+  );
+}
+
+function YearPill({
+  label,
+  active,
+  onPress,
+  colors,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  colors: ThemeColors;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      style={[styles.yearPill, active && { backgroundColor: colors.primaryMuted }]}
+    >
+      <Text variant="caption" color={active ? 'primary' : 'textMuted'} style={styles.yearLabel}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  yearRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  yearPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+  },
+  yearLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   body: {
     gap: spacing.md,

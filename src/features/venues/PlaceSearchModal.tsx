@@ -9,7 +9,8 @@ import {
   View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { usePlaceSuggestions } from '@/features/venues/queries';
+import { usePlaceSuggestions, useVenueSuggestions } from '@/features/venues/queries';
+import type { VenueSuggestion } from '@/features/venues/api';
 import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import {
   isMapboxConfigured,
@@ -24,8 +25,11 @@ export type PlaceSearchResult = {
   name: string;
   city: string;
   address: string | null;
-  latitude: number;
-  longitude: number;
+  // Existing venues from our catalog may predate geocoding and lack coordinates.
+  latitude: number | null;
+  longitude: number | null;
+  /** Set when the result is an existing catalog venue (null for fresh Mapbox hits). */
+  id?: string | null;
 };
 
 type Props = {
@@ -68,6 +72,9 @@ export function PlaceSearchModal({
     visible,
   );
 
+  // Existing venues from our own catalog, shown first so people reuse them.
+  const venueMatches = useVenueSuggestions(searchTerm, cityContext, visible).data ?? [];
+
   useEffect(() => {
     if (!visible) {
       setQuery('');
@@ -93,7 +100,21 @@ export function PlaceSearchModal({
     !isFetching &&
     searchTerm.length >= 2 &&
     suggestions.length === 0 &&
+    venueMatches.length === 0 &&
     !isError;
+
+  const handleSelectVenue = (venue: VenueSuggestion) => {
+    setPickError(null);
+    onSelect({
+      id: venue.id,
+      name: venue.name,
+      city: venue.city || cityContext?.trim() || '',
+      address: venue.address,
+      latitude: venue.latitude,
+      longitude: venue.longitude,
+    });
+    onClose();
+  };
 
   const handleSelect = async (suggestion: PlaceSuggestion) => {
     setPickError(null);
@@ -104,6 +125,7 @@ export function PlaceSearchModal({
       suggestion.longitude != null
     ) {
       onSelect({
+        id: null,
         name: suggestion.name,
         city: suggestion.city || cityContext?.trim() || '',
         address: suggestion.address ?? suggestion.placeFormatted ?? null,
@@ -124,6 +146,7 @@ export function PlaceSearchModal({
         return;
       }
       onSelect({
+        id: null,
         name: details.name || suggestion.name,
         city: details.city || cityContext?.trim() || '',
         address: details.address,
@@ -224,6 +247,45 @@ export function PlaceSearchModal({
             keyExtractor={(item) => item.mapboxId}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.list}
+            ListHeaderComponent={
+              venueMatches.length > 0 ? (
+                <View style={styles.section}>
+                  <Text variant="caption" color="textMuted" style={styles.sectionLabel}>
+                    Already in Tourbook
+                  </Text>
+                  {venueMatches.map((venue) => (
+                    <Pressable
+                      key={venue.id}
+                      onPress={() => handleSelectVenue(venue)}
+                      disabled={!!pickingId}
+                      style={({ pressed }) => [
+                        styles.item,
+                        styles.venueItem,
+                        pressed && styles.itemPressed,
+                      ]}
+                    >
+                      <View style={styles.itemText}>
+                        <Text>{venue.name}</Text>
+                        <Text variant="caption" color="textMuted">
+                          {venue.city}
+                          {venue.showCount > 0
+                            ? ` · ${venue.showCount} ${venue.showCount === 1 ? 'show' : 'shows'}`
+                            : ''}
+                        </Text>
+                      </View>
+                      <Text variant="caption" color="primary">
+                        Use
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {suggestions.length > 0 && (
+                    <Text variant="caption" color="textMuted" style={styles.sectionLabel}>
+                      From Mapbox
+                    </Text>
+                  )}
+                </View>
+              ) : null
+            }
             renderItem={({ item }) => {
               const busy = pickingId === item.mapboxId;
               return (
@@ -300,6 +362,18 @@ const createStyles = (colors: ThemeColors) =>
   list: {
     gap: spacing.xs,
     paddingBottom: spacing.xl,
+  },
+  section: {
+    gap: spacing.xs,
+  },
+  sectionLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingTop: spacing.xs,
+  },
+  venueItem: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   item: {
     flexDirection: 'row',

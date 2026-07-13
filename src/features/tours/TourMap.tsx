@@ -77,6 +77,7 @@ export function TourMap({ stops }: Props) {
   return (
     <View style={styles.container}>
       <MapView
+        key={scheme}
         style={styles.map}
         styleURL={scheme === 'dark' ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light}
         scaleBarEnabled={false}

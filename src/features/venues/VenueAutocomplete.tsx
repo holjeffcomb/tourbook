@@ -3,7 +3,10 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { PlaceSearchModal } from '@/features/venues/PlaceSearchModal';
+import { useVenueSuggestions } from '@/features/venues/queries';
+import type { VenueSuggestion } from '@/features/venues/api';
 import { isMapboxConfigured } from '@/lib/mapbox';
+import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
@@ -13,6 +16,8 @@ export type SelectedVenue = {
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  /** Present when the pick is an existing venue from our catalog (not Mapbox). */
+  id?: string | null;
 };
 
 type Props = {
@@ -54,7 +59,36 @@ export function VenueAutocomplete({
 }: Props) {
   const styles = useThemedStyles(createStyles);
   const [modalOpen, setModalOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  // Hide the dropdown right after a pick so it doesn't reopen on the filled value.
+  const [dismissed, setDismissed] = useState(false);
   const mapboxReady = isMapboxConfigured();
+
+  const debouncedValue = useDebouncedValue(value, 250);
+  const suggestionsQuery = useVenueSuggestions(
+    debouncedValue,
+    cityContext,
+    focused && !dismissed,
+  );
+  const suggestions = suggestionsQuery.data ?? [];
+  // Don't suggest the exact thing already typed (usually the just-picked venue).
+  const filtered = suggestions.filter(
+    (s) => s.name.trim().toLowerCase() !== value.trim().toLowerCase(),
+  );
+  const showSuggestions = focused && !dismissed && filtered.length > 0;
+
+  const pickSuggestion = (venue: VenueSuggestion) => {
+    onChangeText(venue.name);
+    onSelectVenue({
+      id: venue.id,
+      name: venue.name,
+      city: venue.city,
+      address: venue.address,
+      latitude: venue.latitude,
+      longitude: venue.longitude,
+    });
+    setDismissed(true);
+  };
 
   return (
     <View style={styles.container}>
@@ -67,8 +101,15 @@ export function VenueAutocomplete({
               (mapboxReady ? 'Type a name, or tap the target to search' : 'Enter a venue name')
             }
             value={value}
-            onChangeText={onChangeText}
-            onBlur={onBlur}
+            onChangeText={(text) => {
+              setDismissed(false);
+              onChangeText(text);
+            }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => {
+              setFocused(false);
+              onBlur?.();
+            }}
             error={error}
             autoCapitalize="words"
             autoCorrect={false}
@@ -93,6 +134,37 @@ export function VenueAutocomplete({
         </Pressable>
       </View>
 
+      {showSuggestions && (
+        <View style={styles.suggestions}>
+          {filtered.map((item, index) => (
+            <Pressable
+              key={item.id}
+              accessibilityRole="button"
+              // onPressIn so selection fires before the field's onBlur tears this down.
+              onPressIn={() => pickSuggestion(item)}
+              style={({ pressed }) => [
+                styles.suggestionItem,
+                index === filtered.length - 1 && styles.suggestionItemLast,
+                pressed && styles.suggestionItemPressed,
+              ]}
+            >
+              <View style={styles.suggestionText}>
+                <Text numberOfLines={1}>{item.name}</Text>
+                <Text variant="caption" color="textMuted" numberOfLines={1}>
+                  {item.city}
+                  {item.showCount > 0
+                    ? ` · ${item.showCount} ${item.showCount === 1 ? 'show' : 'shows'}`
+                    : ''}
+                </Text>
+              </View>
+              <Text variant="caption" color="primary">
+                Use
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {mapboxReady ? (
         <Text variant="caption" color="textMuted">
           Tap the target to search Mapbox
@@ -112,6 +184,7 @@ export function VenueAutocomplete({
         onSelect={(place) => {
           onChangeText(place.name);
           onSelectVenue({
+            id: place.id ?? null,
             name: place.name,
             city: place.city,
             address: place.address,
@@ -138,6 +211,32 @@ const createStyles = (colors: ThemeColors) =>
   },
   field: {
     flex: 1,
+  },
+  suggestions: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  suggestionItemLast: {
+    borderBottomWidth: 0,
+  },
+  suggestionItemPressed: {
+    backgroundColor: colors.primaryMuted,
+  },
+  suggestionText: {
+    flex: 1,
+    gap: 2,
   },
   searchButton: {
     marginTop: 22, // align with input under the caption label

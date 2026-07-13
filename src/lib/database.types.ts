@@ -17,10 +17,10 @@ export type Database = {
     Functions: {
       graphql: {
         Args: {
-          query?: string
           operationName?: string
-          extensions?: Json
+          query?: string
           variables?: Json
+          extensions?: Json
         }
         Returns: Json
       }
@@ -334,9 +334,49 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      find_nearby_venue: {
+        Args: {
+          lat: number
+          lng: number
+          radius_m?: number
+          name_hint?: string
+        }
+        Returns: {
+          id: string
+          name: string
+          city: string
+          distance_m: number
+          show_count: number
+        }[]
+      }
       is_friends: {
-        Args: { a: string; b: string }
+        Args: {
+          a: string
+          b: string
+        }
         Returns: boolean
+      }
+      merge_duplicate_venues: {
+        Args: {
+          radius_m?: number
+        }
+        Returns: number
+      }
+      search_venues: {
+        Args: {
+          term: string
+          city_bias?: string
+          max_results?: number
+        }
+        Returns: {
+          id: string
+          name: string
+          city: string
+          latitude: number
+          longitude: number
+          address: string
+          show_count: number
+        }[]
       }
     }
     Enums: {

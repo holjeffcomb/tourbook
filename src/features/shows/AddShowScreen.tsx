@@ -24,6 +24,7 @@ export function AddShowScreen() {
         date: '',
         venueName: '',
         venueCity: '',
+        venueId: null,
         latitude: null,
         longitude: null,
         address: null,

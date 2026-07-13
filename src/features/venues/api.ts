@@ -58,6 +58,21 @@ export async function getOrCreateVenue(input: VenueInput): Promise<string> {
     return existing.id;
   }
 
+  // No exact name+city match. If we have coordinates, the same physical venue may
+  // already exist under different text (e.g. "Denver" vs "Denver, CO"); reuse it
+  // instead of forking a duplicate.
+  if (hasCoords) {
+    const { data: nearby, error: nearbyError } = await supabase.rpc('find_nearby_venue', {
+      lat: input.latitude as number,
+      lng: input.longitude as number,
+      radius_m: 75,
+      name_hint: input.name.trim(),
+    });
+    if (nearbyError) throw nearbyError;
+    const match = nearby?.[0];
+    if (match) return match.id;
+  }
+
   const { data, error } = await supabase
     .from('venues')
     .insert({
@@ -97,6 +112,54 @@ export async function getVenue(id: string): Promise<Venue> {
     .single();
   if (error) throw error;
   return data;
+}
+
+export type VenueSuggestion = {
+  id: string;
+  name: string;
+  city: string;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  /** Booked shows that reference this venue — drives popularity ranking. */
+  showCount: number;
+};
+
+/**
+ * Searches the shared venue catalog by name (or city), best-first: exact match,
+ * then prefix, then the current city, then popularity. Lets a user pick a venue
+ * that already exists (with its coordinates) instead of re-entering it.
+ */
+export async function searchVenues(term: string, cityBias?: string): Promise<VenueSuggestion[]> {
+  const q = term.trim();
+  if (q.length < 2) return [];
+
+  const { data, error } = await supabase.rpc('search_venues', {
+    term: q,
+    city_bias: cityBias?.trim() || undefined,
+    max_results: 8,
+  });
+  if (error) throw error;
+
+  type Row = {
+    id: string;
+    name: string;
+    city: string;
+    latitude: number | null;
+    longitude: number | null;
+    address: string | null;
+    show_count: number | null;
+  };
+
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    city: r.city,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    address: r.address,
+    showCount: Number(r.show_count ?? 0),
+  }));
 }
 
 export type VenuePlayer = {

@@ -187,6 +187,32 @@ export function computeVisitedPlaces(stopsByTourId: Record<string, TourStop[]>):
     .sort((a, b) => b.weight - a.weight);
 }
 
+export type TourRoute = {
+  tourId: string;
+  /** Located stops in date order as [lng, lat] pairs. */
+  coordinates: [number, number][];
+};
+
+/**
+ * One ordered route per tour for the Lifetime routes overlay: located stops
+ * sorted by date. Tours with fewer than two located stops are omitted (no line
+ * to draw).
+ */
+export function computeTourRoutes(stopsByTourId: Record<string, TourStop[]>): TourRoute[] {
+  const routes: TourRoute[] = [];
+  for (const [tourId, stops] of Object.entries(stopsByTourId)) {
+    const coordinates = [...stops]
+      .filter((s) => s.location?.latitude != null && s.location?.longitude != null)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .map((s) => [s.location!.longitude as number, s.location!.latitude as number] as [
+        number,
+        number,
+      ]);
+    if (coordinates.length >= 2) routes.push({ tourId, coordinates });
+  }
+  return routes;
+}
+
 export type PassportInput = {
   userId: string;
   tours: { id: string; actName: string }[];

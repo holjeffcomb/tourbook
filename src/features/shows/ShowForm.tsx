@@ -97,7 +97,11 @@ export function ShowForm({
                 placeholder="e.g. Morrison, CO"
                 autoCapitalize="words"
                 value={field.value}
-                onChangeText={field.onChange}
+                onChangeText={(text) => {
+                  field.onChange(text);
+                  // Editing the city breaks the link to a picked venue.
+                  setValue('venueId', null, { shouldDirty: true });
+                }}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
               />
@@ -112,12 +116,17 @@ export function ShowForm({
                 label="Venue (optional)"
                 cityContext={venueCity}
                 value={field.value ?? ''}
-                onChangeText={field.onChange}
+                onChangeText={(text) => {
+                  field.onChange(text);
+                  // Typing a venue name by hand unlinks any previously picked venue.
+                  setValue('venueId', null, { shouldDirty: true });
+                }}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
-                onSelectVenue={({ name, city, address, latitude, longitude }) => {
+                onSelectVenue={({ id, name, city, address, latitude, longitude }) => {
                   setValue('venueName', name, { shouldValidate: true, shouldDirty: true });
                   setValue('venueCity', city || venueCity, { shouldValidate: true, shouldDirty: true });
+                  setValue('venueId', id ?? null, { shouldDirty: true });
                   setValue('latitude', latitude ?? null, { shouldDirty: true });
                   setValue('longitude', longitude ?? null, { shouldDirty: true });
                   setValue('address', address ?? null, { shouldDirty: true });

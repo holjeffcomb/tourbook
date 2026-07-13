@@ -94,6 +94,7 @@ export function EditStopScreen() {
     date: stop.date,
     venueName: stop.venue?.name ?? '',
     venueCity: stop.venue?.city ?? stop.city ?? '',
+    venueId: stop.venue?.id ?? null,
     latitude: stop.venue?.latitude ?? stop.latitude ?? null,
     longitude: stop.venue?.longitude ?? stop.longitude ?? null,
     address: stop.venue?.address ?? stop.address ?? null,

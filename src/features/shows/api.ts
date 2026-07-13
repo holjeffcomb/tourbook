@@ -135,6 +135,9 @@ export type VenueFields = {
   // Empty when the venue isn't booked yet; the city still places it on the map.
   venueName?: string | null;
   venueCity: string;
+  // When the user picked an existing catalog venue, its id is carried through so
+  // we reuse that exact row instead of re-deduping by name+city (avoids dupes).
+  venueId?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   address?: string | null;
@@ -152,6 +155,10 @@ export type CreateShowInput = VenueFields & {
 async function resolveShowLocation(input: VenueFields & { userId: string }) {
   const name = input.venueName?.trim();
   if (name) {
+    // The user picked an existing catalog venue — reuse that exact row.
+    if (input.venueId) {
+      return { venue_id: input.venueId, city: null, latitude: null, longitude: null, address: null };
+    }
     const venueId = await getOrCreateVenue({
       name,
       city: input.venueCity,

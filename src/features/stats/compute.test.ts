@@ -3,12 +3,15 @@ import {
   computeDriveSegments,
   computeNearMisses,
   computePassportStats,
+  computeTourRoutes,
   computeTourStats,
   computeVisitedPlaces,
   isUpcomingNearMiss,
   partitionNearMisses,
 } from '@/features/stats/compute';
 import {
+  arcedPath,
+  densifyPath,
   EARTH_CIRCUMFERENCE_MILES,
   formatEarthLaps,
   formatMiles,
@@ -247,6 +250,112 @@ describe('computeVisitedPlaces', () => {
       ],
     });
     expect(places).toHaveLength(0);
+  });
+});
+
+describe('computeTourRoutes', () => {
+  it('returns located stops in date order and skips single-point tours', () => {
+    const routes = computeTourRoutes({
+      t1: [
+        stop({
+          id: 'b',
+          date: '2026-07-11',
+          kind: 'show',
+          location: {
+            name: 'B',
+            city: '',
+            address: null,
+            latitude: 40,
+            longitude: -111,
+            booked: true,
+          },
+        }),
+        stop({
+          id: 'a',
+          date: '2026-07-10',
+          kind: 'show',
+          location: {
+            name: 'A',
+            city: '',
+            address: null,
+            latitude: 39,
+            longitude: -104,
+            booked: true,
+          },
+        }),
+        stop({ id: 'c', date: '2026-07-12', kind: 'show', location: null }),
+      ],
+      // Only one located stop → no line.
+      t2: [
+        stop({
+          id: 'd',
+          date: '2026-07-10',
+          kind: 'show',
+          location: {
+            name: 'D',
+            city: '',
+            address: null,
+            latitude: 34,
+            longitude: -118,
+            booked: true,
+          },
+        }),
+      ],
+    });
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].tourId).toBe('t1');
+    // Sorted by date: A (-104) then B (-111).
+    expect(routes[0].coordinates).toEqual([
+      [-104, 39],
+      [-111, 40],
+    ]);
+  });
+});
+
+describe('densifyPath', () => {
+  it('inserts intermediate points along long segments', () => {
+    const dense = densifyPath(
+      [
+        [-104, 39],
+        [-111, 40],
+      ],
+      100,
+    );
+    expect(dense.length).toBeGreaterThan(2);
+    expect(dense[0]).toEqual([-104, 39]);
+    expect(dense[dense.length - 1]).toEqual([-111, 40]);
+  });
+
+  it('returns endpoints for a short segment', () => {
+    const dense = densifyPath(
+      [
+        [-104, 39],
+        [-104.01, 39.01],
+      ],
+      100,
+    );
+    expect(dense).toEqual([
+      [-104, 39],
+      [-104.01, 39.01],
+    ]);
+  });
+});
+
+describe('arcedPath', () => {
+  it('keeps endpoints and bows away from the straight line', () => {
+    const a: [number, number] = [-104, 39];
+    const b: [number, number] = [-111, 39];
+    const arc = arcedPath([a, b], 0.2, 16);
+    expect(arc[0]).toEqual(a);
+    expect(arc[arc.length - 1]).toEqual(b);
+    // Midpoint of the arc should be pushed north of the straight midpoint (39).
+    const mid = arc[Math.floor(arc.length / 2)];
+    expect(mid[1]).toBeGreaterThan(39);
+  });
+
+  it('returns the input unchanged for a single point', () => {
+    expect(arcedPath([[-104, 39]], 0.2, 16)).toEqual([[-104, 39]]);
   });
 });
 
