@@ -1,10 +1,12 @@
-import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text as RNText, View } from 'react-native';
-import { Tabs } from 'expo-router';
-import { colors } from '@/theme';
+import Ionicons from '@react-native-vector-icons/ionicons';
+import { Tabs, useRouter } from 'expo-router';
+import { Pressable, StyleSheet, View, type ColorValue } from 'react-native';
+import { Icon, type IconName } from '@/components/Icon';
+import { useColors } from '@/theme/ThemeProvider';
 
 function AddTabButton() {
   const router = useRouter();
+  const colors = useColors();
 
   return (
     <Pressable
@@ -13,41 +15,53 @@ function AddTabButton() {
       accessibilityLabel="Add tour"
       style={styles.addButton}
     >
-      <View style={styles.addCircle}>
-        <RNText style={styles.addPlus}>+</RNText>
+      <View style={[styles.addCircle, { backgroundColor: colors.primary }]}>
+        <Icon name="add" size={28} color="onPrimary" />
       </View>
     </Pressable>
   );
 }
 
+function tabIcon(active: IconName, inactive: IconName) {
+  return ({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) => (
+    <Ionicons name={focused ? active : inactive} size={size} color={color} />
+  );
+}
+
 export default function TabsLayout() {
+  const colors = useColors();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: {
+          backgroundColor: colors.tabBar,
+          borderTopColor: colors.tabBarBorder,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'My Tours',
-          tabBarLabel: 'My Tours',
+          tabBarIcon: tabIcon('musical-notes', 'musical-notes-outline'),
         }}
       />
       <Tabs.Screen
         name="friends-tours"
         options={{
           title: "Friends' Tours",
-          tabBarLabel: "Friends' Tours",
+          tabBarIcon: tabIcon('people', 'people-outline'),
         }}
       />
       <Tabs.Screen
         name="passport"
         options={{
           title: 'Lifetime',
-          tabBarLabel: 'Lifetime',
+          tabBarIcon: tabIcon('earth', 'earth-outline'),
         }}
       />
       <Tabs.Screen
@@ -78,15 +92,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  addPlus: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '300',
-    lineHeight: 30,
-    marginTop: -2,
   },
 });

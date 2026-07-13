@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Avatar } from '@/components/Avatar';
+import { Icon, type IconName } from '@/components/Icon';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/features/profile/queries';
@@ -10,6 +11,7 @@ import { colors, radius, spacing } from '@/theme';
 
 type MenuItem = {
   label: string;
+  icon: IconName;
   onPress: () => void;
   destructive?: boolean;
 };
@@ -25,14 +27,17 @@ export function ProfileMenuButton() {
   const items: MenuItem[] = [
     {
       label: 'My Profile',
+      icon: 'person-outline',
       onPress: () => router.push('/profile'),
     },
     {
       label: 'Settings',
+      icon: 'settings-outline',
       onPress: () => router.push('/settings'),
     },
     {
       label: 'Sign Out',
+      icon: 'log-out-outline',
       onPress: () => signOut(),
       destructive: true,
     },
@@ -71,6 +76,11 @@ export function ProfileMenuButton() {
                   pressed && styles.menuItemPressed,
                 ]}
               >
+                <Icon
+                  name={item.icon}
+                  size={18}
+                  color={item.destructive ? 'danger' : 'textSecondary'}
+                />
                 <Text color={item.destructive ? 'danger' : 'text'}>{item.label}</Text>
               </Pressable>
             ))}
@@ -106,6 +116,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,

@@ -6,20 +6,23 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext';
 import { asyncStoragePersister } from '@/lib/persister';
 import { CACHE_MAX_AGE, queryClient } from '@/lib/queryClient';
+import { ThemeProvider } from '@/theme/ThemeProvider';
 import { colors } from '@/theme';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{ persister: asyncStoragePersister, maxAge: CACHE_MAX_AGE }}
-      >
-        <AuthProvider>
-          <StatusBar style="auto" />
-          <RootNavigator />
-        </AuthProvider>
-      </PersistQueryClientProvider>
+      <ThemeProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister: asyncStoragePersister, maxAge: CACHE_MAX_AGE }}
+        >
+          <AuthProvider>
+            <StatusBar style="auto" />
+            <RootNavigator />
+          </AuthProvider>
+        </PersistQueryClientProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
