@@ -79,7 +79,7 @@ export function PublicProfileScreen() {
                     }
                   />
                   <Button
-                    title="Almost crossed paths"
+                    title="Crossed paths"
                     variant="secondary"
                     onPress={() =>
                       router.push({ pathname: '/people/[id]/near-misses', params: { id } })

@@ -2,6 +2,7 @@ import { useQueries } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { AppHeader } from '@/components/AppHeader';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Screen } from '@/components/Screen';
@@ -75,10 +76,7 @@ export function PassportScreen() {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text variant="title">Passport</Text>
-        <Text color="textMuted">Your lifetime on the road.</Text>
-      </View>
+      <AppHeader title="Lifetime" subtitle="Your lifetime on the road." />
 
       {isLoading ? (
         <View style={styles.center}>
@@ -93,7 +91,7 @@ export function PassportScreen() {
         <View style={styles.center}>
           <Text variant="heading">No tours yet</Text>
           <Text color="textMuted" style={styles.emptyHint}>
-            Join or create a tour to start building your passport.
+            Join or create a tour to start building your lifetime stats.
           </Text>
         </View>
       ) : (
@@ -186,11 +184,6 @@ export function PassportScreen() {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-  },
-  header: {
-    gap: spacing.xs,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
   },
   body: {
     gap: spacing.md,

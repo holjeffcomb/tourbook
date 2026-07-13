@@ -3,13 +3,13 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
+import { AppHeader } from '@/components/AppHeader';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { useAuth } from '@/features/auth/AuthContext';
 import type { Profile } from '@/features/profile/api';
-import { usePendingFriendships, useFriends } from '@/features/social/queries';
 import { useProfile, useUpdateProfile } from '@/features/profile/queries';
 import { profileSchema, type ProfileValues } from '@/features/profile/schema';
 import { colors, spacing } from '@/theme';
@@ -150,50 +150,18 @@ function ProfileForm({ profile, email }: { profile: Profile; email: string | und
 
 export function ProfileScreen() {
   const router = useRouter();
-  const { session, signOut } = useAuth();
+  const { session } = useAuth();
   const profileQuery = useProfile();
-  const friendsQuery = useFriends();
-  const pendingQuery = usePendingFriendships();
-
-  const incomingCount =
-    pendingQuery.data?.filter((f) => f.direction === 'incoming').length ?? 0;
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text variant="title">Profile</Text>
+      <View style={styles.topBar}>
+        <Text variant="body" color="primary" onPress={() => router.back()}>
+          Back
+        </Text>
       </View>
 
-      <View style={styles.links}>
-        <Button
-          title="Find people"
-          variant="secondary"
-          onPress={() => router.push('/people')}
-        />
-        <Button
-          title={
-            incomingCount > 0
-              ? `Friend requests (${incomingCount})`
-              : 'Friend requests'
-          }
-          variant="secondary"
-          onPress={() => router.push('/people/requests')}
-        />
-        <Button
-          title={`Friends${friendsQuery.data ? ` (${friendsQuery.data.length})` : ''}`}
-          variant="secondary"
-          onPress={() => router.push('/people/friends')}
-        />
-        {session?.user.id && (
-          <Button
-            title="View my public profile"
-            variant="secondary"
-            onPress={() =>
-              router.push({ pathname: '/people/[id]', params: { id: session.user.id } })
-            }
-          />
-        )}
-      </View>
+      <AppHeader title="My Profile" showProfileMenu={false} />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -212,8 +180,6 @@ export function ProfileScreen() {
           <ProfileForm profile={profileQuery.data} email={session?.user.email} />
         )}
       </KeyboardAvoidingView>
-
-      <Button title="Sign out" variant="secondary" onPress={() => signOut()} />
     </Screen>
   );
 }
@@ -222,16 +188,12 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  header: {
+  topBar: {
     paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  links: {
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
   },
   form: {
     gap: spacing.md,
+    paddingTop: spacing.md,
   },
   field: {
     gap: spacing.xs,

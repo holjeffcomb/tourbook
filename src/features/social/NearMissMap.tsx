@@ -12,11 +12,12 @@ if (env.mapboxToken) {
 
 type Props = {
   nearMiss: NearMiss;
+  height?: number;
 };
 
 type Coord = [number, number];
 
-export function NearMissMap({ nearMiss }: Props) {
+export function NearMissMap({ nearMiss, height = 200 }: Props) {
   if (!env.mapboxToken) return null;
 
   const a: Coord = [nearMiss.stopA.lng, nearMiss.stopA.lat];
@@ -37,19 +38,19 @@ export function NearMissMap({ nearMiss }: Props) {
   const same = a[0] === b[0] && a[1] === b[1];
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { height }]}>
       <MapView style={styles.map} styleURL={Mapbox.StyleURL.Light} scaleBarEnabled={false}>
         {same ? (
-          <Camera centerCoordinate={a} zoomLevel={10} animationDuration={0} />
+          <Camera centerCoordinate={a} zoomLevel={11} animationDuration={0} />
         ) : (
           <Camera
             bounds={{
               ne: [Math.max(...lngs), Math.max(...lats)],
               sw: [Math.min(...lngs), Math.min(...lats)],
-              paddingTop: 40,
-              paddingBottom: 40,
-              paddingLeft: 40,
-              paddingRight: 40,
+              paddingTop: 48,
+              paddingBottom: 48,
+              paddingLeft: 48,
+              paddingRight: 48,
             }}
             animationDuration={0}
           />
@@ -89,7 +90,6 @@ export function NearMissMap({ nearMiss }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    height: 200,
     borderRadius: radius.md,
     overflow: 'hidden',
     borderWidth: 1,

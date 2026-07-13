@@ -501,3 +501,36 @@ export function computeNearMisses(
     return x.dateA < y.dateA ? 1 : -1;
   });
 }
+
+/** The later of the two stop dates — used to decide upcoming vs past. */
+export function nearMissReferenceDate(miss: Pick<NearMiss, 'dateA' | 'dateB'>): string {
+  return miss.dateA >= miss.dateB ? miss.dateA : miss.dateB;
+}
+
+export function isUpcomingNearMiss(
+  miss: Pick<NearMiss, 'dateA' | 'dateB'>,
+  today: string,
+): boolean {
+  return nearMissReferenceDate(miss) >= today;
+}
+
+export function partitionNearMisses(
+  misses: NearMiss[],
+  today: string,
+): { upcoming: NearMiss[]; past: NearMiss[] } {
+  const upcoming: NearMiss[] = [];
+  const past: NearMiss[] = [];
+  for (const miss of misses) {
+    if (isUpcomingNearMiss(miss, today)) upcoming.push(miss);
+    else past.push(miss);
+  }
+  // Upcoming: soonest first. Past: most recent first.
+  upcoming.sort((a, b) => nearMissReferenceDate(a).localeCompare(nearMissReferenceDate(b)));
+  past.sort((a, b) => nearMissReferenceDate(b).localeCompare(nearMissReferenceDate(a)));
+  return { upcoming, past };
+}
+
+export function isUpcomingDate(date: string, today: string): boolean {
+  return date >= today;
+}
+

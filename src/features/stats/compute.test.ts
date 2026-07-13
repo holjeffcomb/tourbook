@@ -4,6 +4,8 @@ import {
   computeNearMisses,
   computePassportStats,
   computeTourStats,
+  isUpcomingNearMiss,
+  partitionNearMisses,
 } from '@/features/stats/compute';
 import {
   EARTH_CIRCUMFERENCE_MILES,
@@ -228,5 +230,77 @@ describe('computeNearMisses', () => {
     expect(misses[0].kind).toBe('nearby');
     expect(misses[0].milesApart).toBeGreaterThan(70);
     expect(misses[0].milesApart).toBeLessThan(100);
+  });
+
+  it('partitions upcoming vs past by the later stop date', () => {
+    const pastMiss = {
+      dateA: '2024-01-01',
+      dateB: '2024-01-01',
+    };
+    const upcomingMiss = {
+      dateA: '2099-06-01',
+      dateB: '2099-06-02',
+    };
+    expect(isUpcomingNearMiss(pastMiss, '2026-07-12')).toBe(false);
+    expect(isUpcomingNearMiss(upcomingMiss, '2026-07-12')).toBe(true);
+
+    const partitioned = partitionNearMisses(
+      [
+        {
+          ...pastMiss,
+          stopA: {
+            stopId: 'a',
+            label: 'A',
+            city: 'X',
+            lat: 0,
+            lng: 0,
+            tourId: 't1',
+            tourTitle: null,
+            actName: 'A',
+          },
+          stopB: {
+            stopId: 'b',
+            label: 'B',
+            city: 'Y',
+            lat: 0,
+            lng: 0,
+            tourId: 't2',
+            tourTitle: null,
+            actName: 'B',
+          },
+          milesApart: 10,
+          kind: 'nearby' as const,
+        },
+        {
+          ...upcomingMiss,
+          stopA: {
+            stopId: 'c',
+            label: 'C',
+            city: 'X',
+            lat: 0,
+            lng: 0,
+            tourId: 't3',
+            tourTitle: null,
+            actName: 'A',
+          },
+          stopB: {
+            stopId: 'd',
+            label: 'D',
+            city: 'Y',
+            lat: 0,
+            lng: 0,
+            tourId: 't4',
+            tourTitle: null,
+            actName: 'B',
+          },
+          milesApart: 5,
+          kind: 'nearby' as const,
+        },
+      ],
+      '2026-07-12',
+    );
+    expect(partitioned.upcoming).toHaveLength(1);
+    expect(partitioned.past).toHaveLength(1);
+    expect(partitioned.upcoming[0].dateA).toBe('2099-06-01');
   });
 });
