@@ -9,16 +9,19 @@ import { Screen } from '@/components/Screen';
 import { StatGrid } from '@/components/StatGrid';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
+import { PlacesMap } from '@/features/maps/PlacesMap';
 import { listStops } from '@/features/shows/api';
 import { showsKey } from '@/features/shows/queries';
-import { computePassportStats } from '@/features/stats/compute';
+import { computePassportStats, computeVisitedPlaces } from '@/features/stats/compute';
 import type { TourStop } from '@/features/shows/api';
 import { listTourMembers } from '@/features/tours/api';
 import { membersKey, useTours } from '@/features/tours/queries';
 import { formatEarthLaps, formatMiles, formatPercent } from '@/lib/geo';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
+import { useColors } from '@/theme/ThemeProvider';
 
 export function PassportScreen() {
+  const colors = useColors();
   const router = useRouter();
   const { session } = useAuth();
   const userId = session?.user.id;
@@ -68,6 +71,23 @@ export function PassportScreen() {
     });
   }, [userId, toursQuery.data, tourIds, stopsQueries, membersQueries]);
 
+  const places = useMemo(() => {
+    const stopsByTourId: Record<string, TourStop[]> = {};
+    tourIds.forEach((id, index) => {
+      if (stopsQueries[index]?.data) stopsByTourId[id] = stopsQueries[index].data!;
+    });
+    return computeVisitedPlaces(stopsByTourId).map((p) => ({
+      id: p.id,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      weight: p.weight,
+      label: p.label,
+      city: p.city,
+      tourCount: p.tourIds.length,
+      lastVisit: p.lastVisit,
+    }));
+  }, [tourIds, stopsQueries]);
+
   const refetchAll = () => {
     toursQuery.refetch();
     stopsQueries.forEach((q) => q.refetch());
@@ -100,6 +120,15 @@ export function PassportScreen() {
           contentContainerStyle={styles.body}
           showsVerticalScrollIndicator={false}
         >
+          {places.length > 0 && (
+            <View style={styles.section}>
+              <PlacesMap places={places} height={320} />
+              <Text variant="caption" color="textMuted" style={styles.mapCaption}>
+                Everywhere you&apos;ve been — bigger dots mean more visits. Tap a place for details.
+              </Text>
+            </View>
+          )}
+
           <Card style={styles.hero}>
             <Text variant="caption" color="textMuted">
               Distance around Earth
@@ -198,6 +227,9 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: spacing.sm,
+  },
+  mapCaption: {
+    textAlign: 'center',
   },
   center: {
     flex: 1,

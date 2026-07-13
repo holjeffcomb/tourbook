@@ -22,7 +22,8 @@ import {
   type CreateTourValues,
 } from '@/features/tours/schema';
 import { getErrorMessage } from '@/lib/errors';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 type Props = {
   title: string;
@@ -40,6 +41,7 @@ export function TourForm({
   onSubmit,
   showVisibility = true,
 }: Props) {
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const { control, handleSubmit, formState } = useForm<CreateTourValues>({
@@ -189,7 +191,7 @@ export function TourForm({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     paddingTop: spacing.md,

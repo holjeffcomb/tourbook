@@ -1,4 +1,9 @@
-import { Text as RNText, type TextProps as RNTextProps, type TextStyle } from 'react-native';
+import {
+  Text as RNText,
+  StyleSheet,
+  type TextProps as RNTextProps,
+  type TextStyle,
+} from 'react-native';
 import {
   fontWeight as fontWeights,
   typography,
@@ -24,6 +29,14 @@ export function Text({
   ...rest
 }: Props) {
   const colors = useColors();
+
+  // Guard against clipping: our type scale sets a fixed lineHeight per variant.
+  // If a caller overrides fontSize (e.g. a large hero number) without also
+  // setting lineHeight, the inherited lineHeight would clip the glyphs. In that
+  // case clear lineHeight so React Native auto-sizes it to the new fontSize.
+  const flat = StyleSheet.flatten(style) as TextStyle | undefined;
+  const clearLineHeight = flat?.fontSize != null && flat.lineHeight == null;
+
   return (
     <RNText
       style={[
@@ -32,6 +45,7 @@ export function Text({
         weight ? { fontWeight: fontWeights[weight] } : null,
         align ? { textAlign: align } : null,
         style,
+        clearLineHeight ? { lineHeight: undefined } : null,
       ]}
       {...rest}
     />

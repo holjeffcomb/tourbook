@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { colors, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 type Props = {
   label: string;
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function StatTile({ label, value, detail }: Props) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.tile}>
       <Text variant="title" style={styles.value}>
@@ -26,18 +28,19 @@ export function StatTile({ label, value, detail }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  tile: {
-    flex: 1,
-    minWidth: '45%',
-    gap: 2,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: colors.background,
-  },
-  value: {
-    fontSize: 24,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    tile: {
+      flex: 1,
+      minWidth: '45%',
+      gap: 2,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+    },
+    value: {
+      fontSize: 24,
+    },
+  });

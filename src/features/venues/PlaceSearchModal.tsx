@@ -17,7 +17,8 @@ import {
   retrievePlace,
   type PlaceSuggestion,
 } from '@/lib/mapbox';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export type PlaceSearchResult = {
   name: string;
@@ -46,6 +47,8 @@ export function PlaceSearchModal({
   cityContext,
   title = 'Find on Mapbox',
 }: Props) {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const sessionToken = useRef(makeSessionToken());
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState('');
@@ -254,7 +257,8 @@ export function PlaceSearchModal({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -310,7 +314,7 @@ const styles = StyleSheet.create({
   },
   itemPressed: {
     borderColor: colors.primary,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryMuted,
   },
   itemText: {
     flex: 1,

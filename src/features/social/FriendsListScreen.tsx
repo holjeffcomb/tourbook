@@ -6,9 +6,12 @@ import { Text } from '@/components/Text';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import { useFriends, useUnfriend } from '@/features/social/queries';
 import { useUpcomingCrossedPaths } from '@/features/social/useUpcomingCrossedPaths';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function FriendsListScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const friendsQuery = useFriends();
   const unfriend = useUnfriend();
@@ -95,7 +98,8 @@ export function FriendsListScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     paddingTop: spacing.md,
     marginBottom: spacing.sm,
@@ -107,7 +111,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary,
     borderRadius: radius.md,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryMuted,
   },
   pressed: {
     opacity: 0.7,
@@ -137,4 +141,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-});
+  });

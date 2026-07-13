@@ -3,7 +3,8 @@ import type { Feature, FeatureCollection, LineString } from 'geojson';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { env } from '@/lib/env';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles, useTheme } from '@/theme/ThemeProvider';
 
 if (env.mapboxToken) {
   Mapbox.setAccessToken(env.mapboxToken);
@@ -51,6 +52,9 @@ function collection(features: Feature<LineString>[]): FeatureCollection<LineStri
 // between shows, dashed for travel/rest segments touching an off day. Returns
 // null when Mapbox isn't configured or nothing has coordinates yet.
 export function TourMap({ stops }: Props) {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
+  const { scheme } = useTheme();
   if (!env.mapboxToken || stops.length === 0) return null;
 
   const coordinates = stops.map((s) => [s.longitude, s.latitude] as Coord);
@@ -72,7 +76,11 @@ export function TourMap({ stops }: Props) {
 
   return (
     <View style={styles.container}>
-      <MapView style={styles.map} styleURL={Mapbox.StyleURL.Light} scaleBarEnabled={false}>
+      <MapView
+        style={styles.map}
+        styleURL={scheme === 'dark' ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light}
+        scaleBarEnabled={false}
+      >
         {single ? (
           <Camera centerCoordinate={coordinates[0]} zoomLevel={9} animationDuration={0} />
         ) : (
@@ -160,7 +168,8 @@ export function TourMap({ stops }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   container: {
     height: 220,
     borderRadius: radius.md,
@@ -224,4 +233,4 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
   },
-});
+  });

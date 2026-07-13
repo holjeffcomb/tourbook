@@ -11,7 +11,8 @@ import { useFriendNearMisses } from '@/features/social/useFriendNearMisses';
 import type { NearMiss } from '@/features/stats/types';
 import { formatShowDate } from '@/lib/date';
 import { formatMiles } from '@/lib/geo';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function kindLabel(kind: NearMiss['kind']) {
   if (kind === 'same_venue') return 'Same venue';
@@ -38,6 +39,7 @@ function SideCard({
   tourId: string;
   onTourPress: (tourId: string) => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.sideCard}>
       <Text variant="caption" color="textMuted">
@@ -62,6 +64,8 @@ function SideCard({
 }
 
 export function NearMissDetailScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id, stopA, stopB } = useLocalSearchParams<{
     id: string;
     stopA: string;
@@ -175,38 +179,39 @@ export function NearMissDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  topBar: {
-    paddingTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  body: {
-    gap: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  sides: {
-    gap: spacing.sm,
-  },
-  sideCard: {
-    gap: spacing.xs,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-  },
-  tourLink: {
-    marginTop: spacing.xs,
-    gap: 2,
-  },
-  section: {
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    topBar: {
+      paddingTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    body: {
+      gap: spacing.md,
+      paddingBottom: spacing.xl,
+    },
+    sides: {
+      gap: spacing.sm,
+    },
+    sideCard: {
+      gap: spacing.xs,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+    },
+    tourLink: {
+      marginTop: spacing.xs,
+      gap: 2,
+    },
+    section: {
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+    },
+  });

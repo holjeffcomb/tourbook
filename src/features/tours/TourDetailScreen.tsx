@@ -17,7 +17,8 @@ import {
   useTourMembers,
 } from '@/features/tours/queries';
 import { formatDateRange, formatShowDate } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function StopRow({
   stop,
@@ -28,6 +29,7 @@ function StopRow({
   onPress: () => void;
   onVenuePress?: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const isOff = stop.kind === 'off';
   return (
     <Pressable
@@ -69,6 +71,8 @@ function StopRow({
 }
 
 export function TourDetailScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -327,7 +331,7 @@ export function TourDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   flex: {
     flex: 1,
   },

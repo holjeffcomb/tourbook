@@ -4,7 +4,8 @@ import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { PlaceSearchModal } from '@/features/venues/PlaceSearchModal';
 import { isMapboxConfigured } from '@/lib/mapbox';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export type SelectedVenue = {
   name: string;
@@ -28,6 +29,8 @@ type Props = {
 
 /** Simple crosshair / nav-target glyph (no icon package required). */
 function TargetIcon({ active }: { active?: boolean }) {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const stroke = active ? colors.primary : colors.textMuted;
   return (
     <View style={styles.target}>
@@ -49,6 +52,7 @@ export function VenueAutocomplete({
   label = 'Venue',
   placeholder,
 }: Props) {
+  const styles = useThemedStyles(createStyles);
   const [modalOpen, setModalOpen] = useState(false);
   const mapboxReady = isMapboxConfigured();
 
@@ -122,7 +126,8 @@ export function VenueAutocomplete({
 
 const TARGET = 22;
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   container: {
     gap: spacing.xs,
   },
@@ -144,10 +149,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryMuted,
   },
   searchButtonPressed: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: colors.surfaceMuted,
   },
   searchButtonDisabled: {
     borderColor: colors.border,

@@ -1,6 +1,7 @@
 import { StyleSheet, View, type ViewProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing } from '@/theme';
+import { spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 type Props = ViewProps & {
   padded?: boolean;
@@ -8,6 +9,7 @@ type Props = ViewProps & {
 
 export function Screen({ style, padded = true, children, ...rest }: Props) {
   const insets = useSafeAreaInsets();
+  const styles = useThemedStyles(createStyles);
   return (
     <View
       style={[
@@ -23,12 +25,13 @@ export function Screen({ style, padded = true, children, ...rest }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  padded: {
-    paddingHorizontal: spacing.md,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    padded: {
+      paddingHorizontal: spacing.md,
+    },
+  });

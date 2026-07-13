@@ -17,9 +17,12 @@ import { computeOverlap, isUpcomingDate } from '@/features/stats/compute';
 import { useTours } from '@/features/tours/queries';
 import { dateToISO, formatShowDate } from '@/lib/date';
 import { formatMiles } from '@/lib/geo';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function CompareScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -249,44 +252,45 @@ export function CompareScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  topBar: {
-    paddingTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  subtitle: {
-    marginBottom: spacing.md,
-  },
-  body: {
-    gap: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  sideBySide: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  side: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  row: {
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    topBar: {
+      paddingTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    subtitle: {
+      marginBottom: spacing.md,
+    },
+    body: {
+      gap: spacing.md,
+      paddingBottom: spacing.xl,
+    },
+    sideBySide: {
+      flexDirection: 'row',
+      gap: spacing.md,
+    },
+    side: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    section: {
+      gap: spacing.sm,
+    },
+    row: {
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      gap: spacing.xs,
+    },
+    pressed: {
+      opacity: 0.7,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+    },
+  });

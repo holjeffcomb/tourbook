@@ -5,9 +5,11 @@ import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { NearMissListCard } from '@/features/social/NearMissListCard';
 import { useUpcomingCrossedPaths } from '@/features/social/useUpcomingCrossedPaths';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
+import { useColors } from '@/theme/ThemeProvider';
 
 export function UpcomingCrossedPathsScreen() {
+  const colors = useColors();
   const router = useRouter();
   const { items, isLoading, count } = useUpcomingCrossedPaths();
 

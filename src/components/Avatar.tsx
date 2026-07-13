@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { colors } from '@/theme';
+import { useColors } from '@/theme/ThemeProvider';
 
 type Props = {
   name: string;
@@ -9,6 +9,7 @@ type Props = {
 
 /** Initials placeholder until profile photos are supported. */
 export function Avatar({ name, size = 48 }: Props) {
+  const colors = useColors();
   const initials = initialsFromName(name);
   const fontSize = Math.round(size * 0.36);
 
@@ -20,11 +21,14 @@ export function Avatar({ name, size = 48 }: Props) {
           width: size,
           height: size,
           borderRadius: size / 2,
+          backgroundColor: colors.primary,
         },
       ]}
       accessibilityLabel={name}
     >
-      <Text style={[styles.initials, { fontSize, lineHeight: fontSize + 2 }]}>{initials}</Text>
+      <Text style={[styles.initials, { color: colors.onPrimary, fontSize, lineHeight: fontSize + 2 }]}>
+        {initials}
+      </Text>
     </View>
   );
 }
@@ -44,10 +48,8 @@ const styles = StyleSheet.create({
   circle: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
   },
   initials: {
-    color: '#FFFFFF',
     fontWeight: '700',
   },
 });

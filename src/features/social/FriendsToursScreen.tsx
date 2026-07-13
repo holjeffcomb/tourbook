@@ -8,7 +8,8 @@ import { Text } from '@/components/Text';
 import type { FriendsTourEntry } from '@/features/social/useFriendsTours';
 import { useFriendsTours } from '@/features/social/useFriendsTours';
 import { formatDateRange } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function friendSummary(friends: FriendsTourEntry['friends']): string {
   if (friends.length === 1) return friends[0].name;
@@ -25,6 +26,7 @@ function TourRow({
   alsoOnTour: boolean;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const dateRange = formatDateRange(entry.startDate, entry.endDate);
   const leadFriend = entry.friends[0];
 
@@ -59,6 +61,8 @@ function TourRow({
 }
 
 export function FriendsToursScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const { entries, myTourIds, friendCount, isLoading, isError, refetch, isRefetching } =
     useFriendsTours();
@@ -113,7 +117,8 @@ export function FriendsToursScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   content: {
     flex: 1,
   },
@@ -148,4 +153,4 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.xs,
   },
-});
+  });

@@ -4,6 +4,7 @@ import {
   computeNearMisses,
   computePassportStats,
   computeTourStats,
+  computeVisitedPlaces,
   isUpcomingNearMiss,
   partitionNearMisses,
 } from '@/features/stats/compute';
@@ -183,6 +184,69 @@ describe('computePassportStats', () => {
     expect(stats.mostTouredWith?.name).toBe('Alex');
     expect(stats.mostTouredWith?.userId).toBe('friend');
     expect(stats.uniqueCountries).toBe(1);
+  });
+});
+
+describe('computeVisitedPlaces', () => {
+  it('merges repeat visits and sorts by weight', () => {
+    const denver = {
+      name: 'Venue A',
+      city: 'Denver, CO',
+      address: null,
+      latitude: 39.7392,
+      longitude: -104.9903,
+      booked: true,
+    };
+    const places = computeVisitedPlaces({
+      t1: [
+        stop({ id: '1', date: '2026-07-10', kind: 'show', location: denver }),
+        stop({
+          id: '2',
+          date: '2026-07-11',
+          kind: 'show',
+          location: {
+            name: 'Venue B',
+            city: 'Salt Lake City, UT',
+            address: null,
+            latitude: 40.7608,
+            longitude: -111.891,
+            booked: true,
+          },
+        }),
+      ],
+      t2: [stop({ id: '3', date: '2027-01-01', kind: 'show', location: denver })],
+    });
+
+    expect(places).toHaveLength(2);
+    expect(places[0].weight).toBe(2);
+    expect(places[0].city).toBe('Denver, CO');
+    expect(places[0].tourIds.sort()).toEqual(['t1', 't2']);
+    expect(places[0].lastVisit).toBe('2027-01-01');
+    expect(places[0].booked).toBe(true);
+    expect(places[1].weight).toBe(1);
+    expect(places[1].tourIds).toEqual(['t1']);
+  });
+
+  it('skips stops without coordinates', () => {
+    const places = computeVisitedPlaces({
+      t1: [
+        stop({ id: '1', date: '2026-07-10', kind: 'show', location: null }),
+        stop({
+          id: '2',
+          date: '2026-07-11',
+          kind: 'off',
+          location: {
+            name: 'Venue TBD',
+            city: 'Reno, NV',
+            address: null,
+            latitude: null,
+            longitude: null,
+            booked: false,
+          },
+        }),
+      ],
+    });
+    expect(places).toHaveLength(0);
   });
 });
 

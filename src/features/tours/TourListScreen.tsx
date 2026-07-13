@@ -8,9 +8,11 @@ import { useUpcomingCrossedPaths } from '@/features/social/useUpcomingCrossedPat
 import { useTours } from '@/features/tours/queries';
 import type { MyTour } from '@/features/tours/api';
 import { formatDateRange } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function TourRow({ tour, onPress }: { tour: MyTour; onPress: () => void }) {
+  const styles = useThemedStyles(createStyles);
   const dateRange = formatDateRange(tour.start_date, tour.end_date);
   return (
     <Pressable
@@ -35,6 +37,8 @@ function TourRow({ tour, onPress }: { tour: MyTour; onPress: () => void }) {
 }
 
 export function TourListScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const { data: tours, isLoading, isError, refetch, isRefetching } = useTours();
   const crossedPaths = useUpcomingCrossedPaths();
@@ -96,7 +100,7 @@ export function TourListScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   alert: {
     marginTop: spacing.md,
     gap: spacing.xs,
@@ -104,7 +108,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary,
     borderRadius: radius.md,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryMuted,
   },
   content: {
     flex: 1,

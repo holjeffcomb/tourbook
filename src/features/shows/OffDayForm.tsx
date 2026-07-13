@@ -8,6 +8,7 @@ import { DateField } from '@/components/DateField';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
+import { PointMap } from '@/features/maps/PointMap';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { offDaySchema, type OffDayValues } from '@/features/shows/schema';
 import { getErrorMessage } from '@/lib/errors';
@@ -38,6 +39,9 @@ export function OffDayForm({
   });
 
   const offDayCity = watch('city');
+  const offDayLabel = watch('label');
+  const latitude = watch('latitude');
+  const longitude = watch('longitude');
 
   const submit = handleSubmit(async (values) => {
     setFormError(null);
@@ -149,6 +153,15 @@ export function OffDayForm({
               />
             )}
           />
+
+          {latitude != null && longitude != null && (
+            <PointMap
+              latitude={latitude}
+              longitude={longitude}
+              label={offDayLabel?.trim() || offDayCity?.trim() || undefined}
+              height={180}
+            />
+          )}
 
           {!!formError && <Text color="danger">{formError}</Text>}
 

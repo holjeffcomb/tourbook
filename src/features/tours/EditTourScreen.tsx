@@ -6,9 +6,11 @@ import { Text } from '@/components/Text';
 import { TourForm } from '@/features/tours/TourForm';
 import { useMyMembership, useTour, useUpdateTour } from '@/features/tours/queries';
 import type { CreateTourValues } from '@/features/tours/schema';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
+import { useColors } from '@/theme/ThemeProvider';
 
 export function EditTourScreen() {
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const tourQuery = useTour(id);

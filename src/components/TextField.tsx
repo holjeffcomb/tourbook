@@ -1,7 +1,8 @@
 import { forwardRef } from 'react';
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 import { Text } from '@/components/Text';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 type Props = TextInputProps & {
   label: string;
@@ -12,6 +13,8 @@ export const TextField = forwardRef<TextInput, Props>(function TextField(
   { label, error, style, ...rest },
   ref,
 ) {
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.container}>
       <Text variant="caption" color="textMuted">
@@ -32,21 +35,22 @@ export const TextField = forwardRef<TextInput, Props>(function TextField(
   );
 });
 
-const styles = StyleSheet.create({
-  container: {
-    gap: spacing.xs,
-  },
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.background,
-  },
-  inputError: {
-    borderColor: colors.danger,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      gap: spacing.xs,
+    },
+    input: {
+      height: 48,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      fontSize: 16,
+      color: colors.text,
+      backgroundColor: colors.surfaceElevated,
+    },
+    inputError: {
+      borderColor: colors.danger,
+    },
+  });

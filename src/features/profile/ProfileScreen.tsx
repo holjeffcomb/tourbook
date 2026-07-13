@@ -12,9 +12,11 @@ import { useAuth } from '@/features/auth/AuthContext';
 import type { Profile } from '@/features/profile/api';
 import { useProfile, useUpdateProfile } from '@/features/profile/queries';
 import { profileSchema, type ProfileValues } from '@/features/profile/schema';
-import { colors, spacing } from '@/theme';
+import { spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function ProfileForm({ profile, email }: { profile: Profile; email: string | undefined }) {
+  const styles = useThemedStyles(createStyles);
   const updateProfile = useUpdateProfile();
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -149,6 +151,8 @@ function ProfileForm({ profile, email }: { profile: Profile; email: string | und
 }
 
 export function ProfileScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const { session } = useAuth();
   const profileQuery = useProfile();
@@ -184,7 +188,8 @@ export function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   flex: {
     flex: 1,
   },
@@ -209,4 +214,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-});
+  });

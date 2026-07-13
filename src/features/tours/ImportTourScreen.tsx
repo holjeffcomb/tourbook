@@ -21,7 +21,8 @@ import {
 } from '@/features/tours/import';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { getErrorMessage } from '@/lib/errors';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -113,7 +114,10 @@ function matchBadge(stop: EditableStop): {
   }
 }
 
-function badgeStyles(tone: 'ok' | 'warn' | 'bad' | 'busy' | 'idle') {
+function badgeStyles(
+  tone: 'ok' | 'warn' | 'bad' | 'busy' | 'idle',
+  styles: ReturnType<typeof createStyles>,
+) {
   switch (tone) {
     case 'ok':
       return { wrap: styles.badgeOk, text: 'primary' as const };
@@ -128,7 +132,7 @@ function badgeStyles(tone: 'ok' | 'warn' | 'bad' | 'busy' | 'idle') {
   }
 }
 
-function stopCardStyle(stop: EditableStop) {
+function stopCardStyle(stop: EditableStop, styles: ReturnType<typeof createStyles>) {
   if (stop.resolving || !isValidStop(stop)) return styles.stopCard;
   if (stop.confidence === 'needs_review') return [styles.stopCard, styles.stopNeedsReview];
   if (stop.confidence === 'unresolved') return [styles.stopCard, styles.stopUnresolved];
@@ -156,6 +160,8 @@ function yearsInStops(stops: EditableStop[]): number[] {
 }
 
 export function ImportTourScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const parse = useParseTour();
   const create = useCreateImportedTour();
@@ -398,10 +404,10 @@ export function ImportTourScreen() {
               {stops.map((stop, index) => {
                 const invalid = !isValidStop(stop);
                 const badge = matchBadge(stop);
-                const badgeTone = badge ? badgeStyles(badge.tone) : null;
+                const badgeTone = badge ? badgeStyles(badge.tone, styles) : null;
 
                 return (
-                  <View key={stop.key} style={stopCardStyle(stop)}>
+                  <View key={stop.key} style={stopCardStyle(stop, styles)}>
                     <View style={styles.stopHeader}>
                       <Text variant="caption" color="textMuted">
                         Stop {index + 1}
@@ -524,7 +530,8 @@ export function ImportTourScreen() {
 const WARNING_BORDER = '#F59E0B';
 const WARNING_BG = '#FFFBEB';
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     paddingTop: spacing.md,
@@ -632,4 +639,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.sm,
   },
-});
+  });

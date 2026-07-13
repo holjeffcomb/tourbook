@@ -8,6 +8,7 @@ import { DateField } from '@/components/DateField';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
+import { PointMap } from '@/features/maps/PointMap';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { createShowSchema, type CreateShowValues } from '@/features/shows/schema';
 import { getErrorMessage } from '@/lib/errors';
@@ -38,6 +39,9 @@ export function ShowForm({
   });
 
   const venueCity = watch('venueCity');
+  const venueName = watch('venueName');
+  const latitude = watch('latitude');
+  const longitude = watch('longitude');
 
   const submit = handleSubmit(async (values) => {
     setFormError(null);
@@ -137,6 +141,15 @@ export function ShowForm({
               />
             )}
           />
+
+          {latitude != null && longitude != null && (
+            <PointMap
+              latitude={latitude}
+              longitude={longitude}
+              label={venueName?.trim() || venueCity}
+              height={180}
+            />
+          )}
 
           {!!formError && <Text color="danger">{formError}</Text>}
 

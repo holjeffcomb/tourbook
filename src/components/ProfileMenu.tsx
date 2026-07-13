@@ -7,7 +7,8 @@ import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/features/profile/queries';
 import { profileLabel } from '@/features/social/labels';
-import { colors, radius, spacing } from '@/theme';
+import { elevation, radius, spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 type MenuItem = {
   label: string;
@@ -21,6 +22,7 @@ export function ProfileMenuButton() {
   const { signOut } = useAuth();
   const profileQuery = useProfile();
   const [open, setOpen] = useState(false);
+  const styles = useThemedStyles(createStyles);
 
   const name = profileLabel(profileQuery.data);
 
@@ -91,43 +93,40 @@ export function ProfileMenuButton() {
   );
 }
 
-const styles = StyleSheet.create({
-  pressed: {
-    opacity: 0.7,
-  },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    alignItems: 'flex-end',
-    paddingTop: spacing.md + 44,
-    paddingRight: spacing.md,
-  },
-  menu: {
-    minWidth: 180,
-    backgroundColor: colors.background,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  menuItemLast: {
-    borderBottomWidth: 0,
-  },
-  menuItemPressed: {
-    backgroundColor: colors.surface,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    pressed: {
+      opacity: 0.7,
+    },
+    backdrop: {
+      flex: 1,
+      backgroundColor: colors.overlay,
+      alignItems: 'flex-end',
+      paddingTop: spacing.md + 44,
+      paddingRight: spacing.md,
+    },
+    menu: {
+      minWidth: 180,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+      ...elevation.md,
+    },
+    menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    menuItemLast: {
+      borderBottomWidth: 0,
+    },
+    menuItemPressed: {
+      backgroundColor: colors.surface,
+    },
+  });

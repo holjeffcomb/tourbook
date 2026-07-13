@@ -4,11 +4,15 @@ import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
+import { PointMap } from '@/features/maps/PointMap';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import { useVenue, useVenuePlayers } from '@/features/venues/queries';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function VenueDetailScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -41,6 +45,14 @@ export function VenueDetailScreen() {
               {venueQuery.data.address}
             </Text>
           )}
+
+          <View style={styles.map}>
+            <PointMap
+              latitude={venueQuery.data.latitude}
+              longitude={venueQuery.data.longitude}
+              label={venueQuery.data.name}
+            />
+          </View>
 
           <Text variant="heading" style={styles.section}>
             Who&apos;s played here
@@ -95,7 +107,8 @@ export function VenueDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     paddingTop: spacing.md,
     marginBottom: spacing.sm,
@@ -103,6 +116,9 @@ const styles = StyleSheet.create({
   body: {
     gap: spacing.sm,
     paddingBottom: spacing.xl,
+  },
+  map: {
+    marginTop: spacing.sm,
   },
   section: {
     marginTop: spacing.lg,

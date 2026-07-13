@@ -18,7 +18,8 @@ import type { TourSearchResult } from '@/features/tours/api';
 import { useJoinTourById, useTours, useTourSearch } from '@/features/tours/queries';
 import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import { formatDateRange } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function ExistingTourRow({
   tour,
@@ -29,6 +30,7 @@ function ExistingTourRow({
   isMember: boolean;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const dateRange = formatDateRange(tour.start_date, tour.end_date);
   const creator = tour.creator?.display_name;
   const memberLabel = `${tour.memberCount} ${tour.memberCount === 1 ? 'member' : 'members'}`;
@@ -61,6 +63,8 @@ function ExistingTourRow({
 }
 
 export function AddTourScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const [actName, setActName] = useState('');
   const debounced = useDebouncedValue(actName, 250);
@@ -170,7 +174,7 @@ export function AddTourScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     paddingTop: spacing.md,

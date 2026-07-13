@@ -8,12 +8,15 @@ import { useProfile } from '@/features/profile/queries';
 import { NearMissListCard } from '@/features/social/NearMissListCard';
 import { profileLabel } from '@/features/social/labels';
 import { useFriendNearMisses } from '@/features/social/useFriendNearMisses';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 const DISTANCE_PRESETS = [50, 100, 250] as const;
 const WINDOW_PRESETS = [0, 1, 2] as const;
 
 export function NearMissScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
@@ -143,44 +146,45 @@ export function NearMissScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  topBar: {
-    paddingTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  subtitle: {
-    marginBottom: spacing.md,
-  },
-  body: {
-    gap: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  filters: {
-    gap: spacing.sm,
-  },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-  },
-  chipSelected: {
-    borderColor: colors.primary,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    topBar: {
+      paddingTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+      subtitle: {
+      marginBottom: spacing.md,
+    },
+    body: {
+      gap: spacing.md,
+      paddingBottom: spacing.xl,
+    },
+    filters: {
+      gap: spacing.sm,
+    },
+    chips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    chip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+    },
+    chipSelected: {
+      borderColor: colors.primary,
+    },
+    section: {
+      gap: spacing.sm,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+    },
+  });

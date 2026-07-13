@@ -4,7 +4,8 @@ import { Text } from '@/components/Text';
 import type { NearMiss } from '@/features/stats/types';
 import { formatShowDate } from '@/lib/date';
 import { formatMiles } from '@/lib/geo';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 type Props = {
   nearMiss: NearMiss;
@@ -28,6 +29,7 @@ export function NearMissListCard({
   withFriend,
   onPress,
 }: Props) {
+  const styles = useThemedStyles(createStyles);
   const dateLabel =
     nearMiss.dateA === nearMiss.dateB
       ? formatShowDate(nearMiss.dateA)
@@ -81,31 +83,32 @@ export function NearMissListCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-  },
-  cardUpcoming: {
-    borderColor: '#93C5FD',
-    backgroundColor: '#F8FBFF',
-  },
-  pressed: {
-    opacity: 0.75,
-  },
-  body: {
-    flex: 1,
-    gap: 2,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    card: {
+      flexDirection: 'row',
+      gap: spacing.md,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+    },
+    cardUpcoming: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primaryMuted,
+    },
+    pressed: {
+      opacity: 0.75,
+    },
+    body: {
+      flex: 1,
+      gap: 2,
+    },
+    metaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+  });
