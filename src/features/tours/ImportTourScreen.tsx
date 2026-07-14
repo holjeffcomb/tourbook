@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -166,9 +166,13 @@ export function ImportTourScreen() {
   const parse = useParseTour();
   const create = useCreateImportedTour();
 
+  // The act is chosen up front (in AddTourScreen) and locked here, so the AI
+  // prompt only extracts venues and dates and the tour ties to that exact act.
+  const { act, actId } = useLocalSearchParams<{ act?: string; actId?: string }>();
+  const actName = (act ?? '').trim();
+
   const [rawText, setRawText] = useState('');
   const [phase, setPhase] = useState<'input' | 'review'>('input');
-  const [actName, setActName] = useState('');
   const [tourTitle, setTourTitle] = useState('');
   const [stops, setStops] = useState<EditableStop[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -224,7 +228,7 @@ export function ImportTourScreen() {
     setError(null);
     try {
       const parsed = await parse.mutateAsync(rawText);
-      setActName(parsed.actName);
+      // Act is already chosen; only adopt the parsed title.
       setTourTitle(parsed.tourTitle ?? '');
       const editable = toEditable(parsed);
       setStops(editable);
@@ -285,6 +289,7 @@ export function ImportTourScreen() {
     try {
       const { id } = await create.mutateAsync({
         actName: actName.trim(),
+        actId: actId ?? null,
         tourTitle: tourTitle.trim() || null,
         stops: payloadStops,
       });
@@ -314,9 +319,19 @@ export function ImportTourScreen() {
           {phase === 'input' ? (
             <>
               <Text variant="title">Import a tour</Text>
+              {!!actName && (
+                <View style={styles.lockedAct}>
+                  <Text variant="caption" color="textMuted">
+                    Act
+                  </Text>
+                  <Text variant="body" style={styles.lockedActName}>
+                    {actName}
+                  </Text>
+                </View>
+              )}
               <Text color="textMuted">
-                Paste tour dates from a poster, listing, or email. We&apos;ll pull out the act,
-                venues, and dates for you to review before saving.
+                Paste tour dates from a poster, listing, or email. We&apos;ll pull out the venues and
+                dates for you to review before saving.
               </Text>
 
               <TextInput
@@ -363,7 +378,14 @@ export function ImportTourScreen() {
                 </View>
               )}
 
-              <TextField label="Act" value={actName} onChangeText={setActName} autoCapitalize="words" />
+              <View style={styles.lockedAct}>
+                <Text variant="caption" color="textMuted">
+                  Act
+                </Text>
+                <Text variant="body" style={styles.lockedActName}>
+                  {actName}
+                </Text>
+              </View>
               <TextField
                 label="Tour title (optional)"
                 value={tourTitle}
@@ -553,6 +575,17 @@ const createStyles = (colors: ThemeColors) =>
     fontSize: 16,
     color: colors.text,
     backgroundColor: colors.background,
+  },
+  lockedAct: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  lockedActName: {
+    fontWeight: '600',
   },
   attentionBanner: {
     gap: spacing.xs,

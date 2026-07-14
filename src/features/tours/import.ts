@@ -130,6 +130,8 @@ export type ImportStop = {
 export type CreateImportedTourInput = {
   userId: string;
   actName: string;
+  // Set when the act was chosen up front, so the import ties to that exact act.
+  actId?: string | null;
   tourTitle: string | null;
   stops: ImportStop[];
 };
@@ -141,6 +143,7 @@ export async function createImportedTour(
   const { id } = await createTour({
     userId: input.userId,
     actName: input.actName,
+    actId: input.actId ?? null,
     title: input.tourTitle ?? undefined,
     startDate: dates[0] ?? null,
     endDate: dates[dates.length - 1] ?? null,

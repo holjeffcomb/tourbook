@@ -32,6 +32,8 @@ type Props = {
   onSubmit: (values: CreateTourValues) => Promise<void>;
   /** When false, hide the visibility picker (e.g. non-creator edits). */
   showVisibility?: boolean;
+  /** When set, the act is fixed (chosen earlier) and shown read-only. */
+  lockedActName?: string;
 };
 
 export function TourForm({
@@ -40,6 +42,7 @@ export function TourForm({
   defaultValues,
   onSubmit,
   showVisibility = true,
+  lockedActName,
 }: Props) {
   const styles = useThemedStyles(createStyles);
   const router = useRouter();
@@ -77,18 +80,29 @@ export function TourForm({
         >
           <Text variant="title">{title}</Text>
 
-          <Controller
-            control={control}
-            name="actName"
-            render={({ field, fieldState }) => (
-              <ActAutocomplete
-                value={field.value}
-                onChangeText={field.onChange}
-                onBlur={field.onBlur}
-                error={fieldState.error?.message}
-              />
-            )}
-          />
+          {lockedActName ? (
+            <View style={styles.lockedAct}>
+              <Text variant="caption" color="textMuted">
+                Act
+              </Text>
+              <Text variant="body" style={styles.lockedActName}>
+                {lockedActName}
+              </Text>
+            </View>
+          ) : (
+            <Controller
+              control={control}
+              name="actName"
+              render={({ field, fieldState }) => (
+                <ActAutocomplete
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
+                  error={fieldState.error?.message}
+                />
+              )}
+            />
+          )}
 
           <Controller
             control={control}
@@ -203,6 +217,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     gap: spacing.md,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  lockedAct: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  lockedActName: {
+    fontWeight: '600',
   },
   visibility: {
     gap: spacing.sm,

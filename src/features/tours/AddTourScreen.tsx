@@ -62,17 +62,44 @@ function ExistingTourRow({
   );
 }
 
+function MethodOption({
+  title,
+  description,
+  onPress,
+}: {
+  title: string;
+  description: string;
+  onPress: () => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.methodCard, pressed && styles.rowPressed]}
+    >
+      <Text variant="body" style={styles.rowTitle}>
+        {title}
+      </Text>
+      <Text variant="caption" color="textMuted">
+        {description}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function AddTourScreen() {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
   const router = useRouter();
+  const [phase, setPhase] = useState<'act' | 'method'>('act');
   const [actName, setActName] = useState('');
   const debounced = useDebouncedValue(actName, 250);
 
   const { data: actMatches } = useActSearch(debounced);
 
   // Resolve the typed act to a known act id (via exact match or an explicit
-  // selection) so we can surface existing tours for it.
+  // selection) so we can surface existing tours and tie to that exact act.
   const actId = useMemo(() => {
     const term = actName.trim().toLowerCase();
     if (term.length < 2) return null;
@@ -90,7 +117,9 @@ export function AddTourScreen() {
   );
 
   const results = searchQuery.data ?? [];
-  const canCreate = actName.trim().length >= 2;
+  const trimmedAct = actName.trim();
+  const canContinue = trimmedAct.length >= 2;
+  const isNewAct = canContinue && !actId;
 
   const openTour = async (tour: TourSearchResult) => {
     if (!myTourIds.has(tour.id)) {
@@ -103,11 +132,22 @@ export function AddTourScreen() {
     router.replace({ pathname: '/tours/[id]', params: { id: tour.id } });
   };
 
+  const goToMethod = (pathname: '/tours/create' | '/tours/import') => {
+    router.push({
+      pathname,
+      params: actId ? { act: trimmedAct, actId } : { act: trimmedAct },
+    });
+  };
+
   return (
     <Screen>
       <View style={styles.topBar}>
-        <Text variant="body" color="primary" onPress={() => router.back()}>
-          Cancel
+        <Text
+          variant="body"
+          color="primary"
+          onPress={() => (phase === 'method' ? setPhase('act') : router.back())}
+        >
+          {phase === 'method' ? 'Back' : 'Cancel'}
         </Text>
       </View>
 
@@ -120,53 +160,92 @@ export function AddTourScreen() {
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
         >
-          <Text variant="title">Add a tour</Text>
-          <Text color="textMuted">
-            Search for the act. If the tour already exists, join it so everyone shares one record.
-          </Text>
+          {phase === 'act' ? (
+            <>
+              <Text variant="title">Add a tour</Text>
+              <Text color="textMuted">
+                Who&apos;s the act? Pick an existing one so everyone shares a record — or add a new
+                act.
+              </Text>
 
-          <Button
-            title="Paste tour text (AI import)"
-            variant="secondary"
-            onPress={() => router.push('/tours/import')}
-          />
+              <ActAutocomplete
+                value={actName}
+                onChangeText={setActName}
+                onSelectAct={(act) => setActName(act.name)}
+              />
 
-          <ActAutocomplete
-            value={actName}
-            onChangeText={setActName}
-            onSelectAct={(act) => setActName(act.name)}
-          />
-
-          {actId && (
-            <View style={styles.results}>
-              {searchQuery.isLoading ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : results.length > 0 ? (
-                <>
-                  <Text variant="heading">Existing tours</Text>
-                  {results.map((tour) => (
-                    <ExistingTourRow
-                      key={tour.id}
-                      tour={tour}
-                      isMember={myTourIds.has(tour.id)}
-                      onPress={() => openTour(tour)}
-                    />
-                  ))}
-                </>
-              ) : (
-                <Text color="textMuted">No tours logged for this act yet.</Text>
+              {isNewAct && (
+                <View style={styles.newActNotice}>
+                  <Text variant="caption" color="primary" style={styles.noticeLabel}>
+                    New act
+                  </Text>
+                  <Text variant="caption" color="textMuted">
+                    “{trimmedAct}” isn&apos;t in the database yet — it&apos;ll be created when you add
+                    this tour.
+                  </Text>
+                </View>
               )}
-            </View>
-          )}
 
-          {canCreate && (
-            <Button
-              title="Create a new tour"
-              variant="secondary"
-              onPress={() =>
-                router.push({ pathname: '/tours/create', params: { act: actName.trim() } })
-              }
-            />
+              {actId && (
+                <View style={styles.results}>
+                  {searchQuery.isLoading ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : results.length > 0 ? (
+                    <>
+                      <Text variant="heading">Existing tours</Text>
+                      <Text variant="caption" color="textMuted">
+                        Already logged for this act — join instead of duplicating.
+                      </Text>
+                      {results.map((tour) => (
+                        <ExistingTourRow
+                          key={tour.id}
+                          tour={tour}
+                          isMember={myTourIds.has(tour.id)}
+                          onPress={() => openTour(tour)}
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <Text color="textMuted">No tours logged for this act yet.</Text>
+                  )}
+                </View>
+              )}
+
+              <Button
+                title="Continue"
+                onPress={() => setPhase('method')}
+                disabled={!canContinue}
+              />
+            </>
+          ) : (
+            <>
+              <Text variant="title">How do you want to add it?</Text>
+              <View style={styles.chosenAct}>
+                <View style={styles.rowText}>
+                  <Text variant="caption" color="textMuted">
+                    Act
+                  </Text>
+                  <Text variant="body" style={styles.rowTitle}>
+                    {trimmedAct}
+                    {isNewAct ? ' (new)' : ''}
+                  </Text>
+                </View>
+                <Text variant="body" color="primary" onPress={() => setPhase('act')}>
+                  Change
+                </Text>
+              </View>
+
+              <MethodOption
+                title="Enter dates manually"
+                description="Create the tour, then add shows and off days one at a time."
+                onPress={() => goToMethod('/tours/create')}
+              />
+              <MethodOption
+                title="Paste tour text (AI import)"
+                description="Paste dates from a poster, listing, or email and we'll pull out the venues and dates."
+                onPress={() => goToMethod('/tours/import')}
+              />
+            </>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -210,5 +289,35 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   rowTitle: {
     fontWeight: '600',
+  },
+  newActNotice: {
+    gap: 2,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryMuted,
+  },
+  noticeLabel: {
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  chosenAct: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  methodCard: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
   },
 });
