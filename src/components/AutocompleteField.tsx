@@ -2,7 +2,8 @@ import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 export type Suggestion = { id: string; label: string; sublabel?: string };
 
@@ -30,13 +31,13 @@ export function AutocompleteField({
   onSelect,
 }: Props) {
   const [focused, setFocused] = useState(false);
+  const styles = useThemedStyles(createStyles);
   // Blur fires before a suggestion's press; defer hiding so the tap registers.
   const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const matchesValue =
-    suggestions.length === 1 &&
-    suggestions[0].label.trim().toLowerCase() === value.trim().toLowerCase();
-  const showList = focused && suggestions.length > 0 && !matchesValue;
+  // Always show suggestions while focused so the user can confirm a pick
+  // (e.g. "MTELUS" with one Mapbox hit still needs a tap to lock in coords).
+  const showList = focused && suggestions.length > 0;
 
   return (
     <View style={styles.container}>
@@ -84,25 +85,26 @@ export function AutocompleteField({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: spacing.xs,
-  },
-  list: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.background,
-    overflow: 'hidden',
-  },
-  item: {
-    gap: 2,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  itemPressed: {
-    backgroundColor: colors.surface,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      gap: spacing.xs,
+    },
+    list: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceElevated,
+      overflow: 'hidden',
+    },
+    item: {
+      gap: 2,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    itemPressed: {
+      backgroundColor: colors.surface,
+    },
+  });

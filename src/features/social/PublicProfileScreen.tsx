@@ -15,9 +15,12 @@ import {
   useVisibleToursForUser,
 } from '@/features/social/queries';
 import { formatDateRange } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function PublicProfileScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -79,7 +82,7 @@ export function PublicProfileScreen() {
                     }
                   />
                   <Button
-                    title="Almost crossed paths"
+                    title="Crossed paths"
                     variant="secondary"
                     onPress={() =>
                       router.push({ pathname: '/people/[id]/near-misses', params: { id } })
@@ -158,7 +161,8 @@ export function PublicProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     paddingTop: spacing.md,
     marginBottom: spacing.sm,
@@ -191,4 +195,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-});
+  });

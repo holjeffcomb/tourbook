@@ -1,14 +1,18 @@
 import { useRouter } from 'expo-router';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { AppHeader } from '@/components/AppHeader';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
+import { useUpcomingCrossedPaths } from '@/features/social/useUpcomingCrossedPaths';
 import { useTours } from '@/features/tours/queries';
 import type { MyTour } from '@/features/tours/api';
 import { formatDateRange } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 function TourRow({ tour, onPress }: { tour: MyTour; onPress: () => void }) {
+  const styles = useThemedStyles(createStyles);
   const dateRange = formatDateRange(tour.start_date, tour.end_date);
   return (
     <Pressable
@@ -33,14 +37,31 @@ function TourRow({ tour, onPress }: { tour: MyTour; onPress: () => void }) {
 }
 
 export function TourListScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const { data: tours, isLoading, isError, refetch, isRefetching } = useTours();
+  const crossedPaths = useUpcomingCrossedPaths();
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text variant="title">Tours</Text>
-      </View>
+      <AppHeader title="My Tours" />
+
+      {crossedPaths.count > 0 && (
+        <Pressable
+          onPress={() => router.push('/people/crossed-paths')}
+          style={({ pressed }) => [styles.alert, pressed && styles.rowPressed]}
+        >
+          <Text variant="body" color="primary">
+            {crossedPaths.count === 1
+              ? '1 upcoming crossed path with a friend'
+              : `${crossedPaths.count} upcoming crossed paths with friends`}
+          </Text>
+          <Text variant="caption" color="textMuted">
+            Tap to see who you&apos;ll be near
+          </Text>
+        </Pressable>
+      )}
 
       <View style={styles.content}>
         {isLoading ? (
@@ -70,23 +91,24 @@ export function TourListScreen() {
           <View style={styles.center}>
             <Text variant="heading">No tours yet</Text>
             <Text color="textMuted" style={styles.emptyHint}>
-              Add your first tour to start your logbook.
+              Tap + below to add your first tour.
             </Text>
           </View>
         )}
       </View>
-
-      <Button title="Add tour" onPress={() => router.push('/tours/new')} />
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: spacing.md,
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  alert: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryMuted,
   },
   content: {
     flex: 1,

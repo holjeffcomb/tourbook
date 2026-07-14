@@ -1,16 +1,65 @@
-import { ActivityIndicator, Pressable, StyleSheet, type PressableProps } from 'react-native';
+import { useMemo } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  View,
+  type PressableProps,
+} from 'react-native';
+import { Icon, type IconName } from '@/components/Icon';
 import { Text } from '@/components/Text';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ColorToken, type ThemeColors } from '@/theme';
+import { useColors } from '@/theme/ThemeProvider';
+
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+export type ButtonSize = 'sm' | 'md' | 'lg';
 
 type Props = Omit<PressableProps, 'children'> & {
   title: string;
   loading?: boolean;
-  variant?: 'primary' | 'secondary';
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  leftIcon?: IconName;
+  rightIcon?: IconName;
+  fullWidth?: boolean;
 };
 
-export function Button({ title, loading = false, variant = 'primary', disabled, style, ...rest }: Props) {
+const SIZES: Record<ButtonSize, { height: number; paddingHorizontal: number; fontVariant: 'callout' | 'body' }> = {
+  sm: { height: 36, paddingHorizontal: spacing.md, fontVariant: 'callout' },
+  md: { height: 48, paddingHorizontal: spacing.lg, fontVariant: 'body' },
+  lg: { height: 56, paddingHorizontal: spacing.lg, fontVariant: 'body' },
+};
+
+function variantColors(variant: ButtonVariant, colors: ThemeColors) {
+  switch (variant) {
+    case 'primary':
+      return { bg: colors.primary, border: colors.primary, fg: 'onPrimary' as ColorToken };
+    case 'danger':
+      return { bg: colors.danger, border: colors.danger, fg: 'textInverse' as ColorToken };
+    case 'ghost':
+      return { bg: 'transparent', border: 'transparent', fg: 'primary' as ColorToken };
+    case 'secondary':
+    default:
+      return { bg: colors.surface, border: colors.border, fg: 'text' as ColorToken };
+  }
+}
+
+export function Button({
+  title,
+  loading = false,
+  variant = 'primary',
+  size = 'md',
+  leftIcon,
+  rightIcon,
+  fullWidth = true,
+  disabled,
+  style,
+  ...rest
+}: Props) {
+  const colors = useColors();
   const isDisabled = disabled || loading;
-  const isPrimary = variant === 'primary';
+  const sizing = SIZES[size];
+  const v = useMemo(() => variantColors(variant, colors), [variant, colors]);
 
   return (
     <Pressable
@@ -19,7 +68,14 @@ export function Button({ title, loading = false, variant = 'primary', disabled, 
       disabled={isDisabled}
       style={(state) => [
         styles.base,
-        isPrimary ? styles.primary : styles.secondary,
+        {
+          height: sizing.height,
+          paddingHorizontal: sizing.paddingHorizontal,
+          backgroundColor: v.bg,
+          borderColor: v.border,
+          borderWidth: variant === 'ghost' ? 0 : 1,
+          alignSelf: fullWidth ? 'stretch' : 'flex-start',
+        },
         isDisabled && styles.disabled,
         state.pressed && styles.pressed,
         typeof style === 'function' ? style(state) : style,
@@ -27,11 +83,15 @@ export function Button({ title, loading = false, variant = 'primary', disabled, 
       {...rest}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.background : colors.text} />
+        <ActivityIndicator color={colors[v.fg]} />
       ) : (
-        <Text variant="body" color={isPrimary ? 'background' : 'text'} style={styles.label}>
-          {title}
-        </Text>
+        <View style={styles.content}>
+          {leftIcon && <Icon name={leftIcon} size={18} color={v.fg} />}
+          <Text variant={sizing.fontVariant} color={v.fg} weight="semibold">
+            {title}
+          </Text>
+          {rightIcon && <Icon name={rightIcon} size={18} color={v.fg} />}
+        </View>
       )}
     </Pressable>
   );
@@ -39,27 +99,20 @@ export function Button({ title, loading = false, variant = 'primary', disabled, 
 
 const styles = StyleSheet.create({
   base: {
-    height: 48,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
   },
-  primary: {
-    backgroundColor: colors.primary,
-  },
-  secondary: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
   },
   disabled: {
     opacity: 0.5,
   },
   pressed: {
     opacity: 0.85,
-  },
-  label: {
-    fontWeight: '600',
   },
 });

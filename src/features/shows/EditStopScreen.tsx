@@ -8,11 +8,13 @@ import { ShowForm } from '@/features/shows/ShowForm';
 import { useDeleteStop, useStop, useUpdateOffDay, useUpdateShow } from '@/features/shows/queries';
 import type { CreateShowValues, OffDayValues } from '@/features/shows/schema';
 import { getErrorMessage } from '@/lib/errors';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
+import { useColors } from '@/theme/ThemeProvider';
 
 export function EditStopScreen() {
   const { id, showId } = useLocalSearchParams<{ id: string; showId: string }>();
   const router = useRouter();
+  const colors = useColors();
   const stopQuery = useStop(showId);
   const updateShow = useUpdateShow(id, showId);
   const updateOffDay = useUpdateOffDay(id, showId);
@@ -92,6 +94,7 @@ export function EditStopScreen() {
     date: stop.date,
     venueName: stop.venue?.name ?? '',
     venueCity: stop.venue?.city ?? stop.city ?? '',
+    venueId: stop.venue?.id ?? null,
     latitude: stop.venue?.latitude ?? stop.latitude ?? null,
     longitude: stop.venue?.longitude ?? stop.longitude ?? null,
     address: stop.venue?.address ?? stop.address ?? null,

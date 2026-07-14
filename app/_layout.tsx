@@ -6,30 +6,33 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext';
 import { asyncStoragePersister } from '@/lib/persister';
 import { CACHE_MAX_AGE, queryClient } from '@/lib/queryClient';
-import { colors } from '@/theme';
+import { ThemeProvider, useColors } from '@/theme/ThemeProvider';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{ persister: asyncStoragePersister, maxAge: CACHE_MAX_AGE }}
-      >
-        <AuthProvider>
-          <StatusBar style="auto" />
-          <RootNavigator />
-        </AuthProvider>
-      </PersistQueryClientProvider>
+      <ThemeProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister: asyncStoragePersister, maxAge: CACHE_MAX_AGE }}
+        >
+          <AuthProvider>
+            <StatusBar style="auto" />
+            <RootNavigator />
+          </AuthProvider>
+        </PersistQueryClientProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
 
 function RootNavigator() {
   const { session, initializing } = useAuth();
+  const colors = useColors();
 
   if (initializing) {
     return (
-      <View style={styles.loading}>
+      <View style={[styles.loading, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
@@ -52,6 +55,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
   },
 });

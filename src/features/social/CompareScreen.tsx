@@ -13,12 +13,16 @@ import { listStops } from '@/features/shows/api';
 import { showsKey } from '@/features/shows/queries';
 import { profileLabel } from '@/features/social/labels';
 import { useAreFriends, useVisibleToursForUser } from '@/features/social/queries';
-import { computeOverlap } from '@/features/stats/compute';
+import { computeOverlap, isUpcomingDate } from '@/features/stats/compute';
 import { useTours } from '@/features/tours/queries';
+import { dateToISO, formatShowDate } from '@/lib/date';
 import { formatMiles } from '@/lib/geo';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function CompareScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -94,6 +98,11 @@ export function CompareScreen() {
   ]);
 
   const theirName = profileLabel(friendProfile.data);
+  const today = dateToISO(new Date());
+  const upcomingDates =
+    overlap?.sameDates.filter((row) => isUpcomingDate(row.date, today)) ?? [];
+  const pastDates =
+    overlap?.sameDates.filter((row) => !isUpcomingDate(row.date, today)) ?? [];
 
   return (
     <Screen>
@@ -158,7 +167,11 @@ export function CompareScreen() {
           </Card>
 
           <Button
-            title="Almost crossed paths"
+            title={
+              upcomingDates.length > 0
+                ? `Crossed paths (${upcomingDates.length} upcoming)`
+                : 'Crossed paths'
+            }
             onPress={() =>
               router.push({ pathname: '/people/[id]/near-misses', params: { id } })
             }
@@ -200,17 +213,32 @@ export function CompareScreen() {
             </View>
           )}
 
-          {overlap.sameDates.length > 0 && (
+          {upcomingDates.length > 0 && (
             <View style={styles.section}>
-              <Text variant="heading">Same calendar days</Text>
-              {overlap.sameDates.slice(0, 20).map((row) => (
-                <Card key={`${row.date}-${row.stopA}-${row.stopB}`}>
-                  <Text variant="caption" color="textMuted">
-                    {row.date}
+              <Text variant="heading">Upcoming same days</Text>
+              {upcomingDates.slice(0, 20).map((row) => (
+                <Card key={`up-${row.date}-${row.stopA}-${row.stopB}`}>
+                  <Text variant="caption" color="primary">
+                    Upcoming · {formatShowDate(row.date)}
                   </Text>
+                  <Text>You: {row.stopA}</Text>
                   <Text>
-                    You: {row.stopA}
+                    {theirName}: {row.stopB}
                   </Text>
+                </Card>
+              ))}
+            </View>
+          )}
+
+          {pastDates.length > 0 && (
+            <View style={styles.section}>
+              <Text variant="heading">Past same days</Text>
+              {pastDates.slice(0, 20).map((row) => (
+                <Card key={`past-${row.date}-${row.stopA}-${row.stopB}`}>
+                  <Text variant="caption" color="textMuted">
+                    {formatShowDate(row.date)}
+                  </Text>
+                  <Text>You: {row.stopA}</Text>
                   <Text>
                     {theirName}: {row.stopB}
                   </Text>
@@ -224,44 +252,45 @@ export function CompareScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  topBar: {
-    paddingTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  subtitle: {
-    marginBottom: spacing.md,
-  },
-  body: {
-    gap: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  sideBySide: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  side: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  row: {
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    topBar: {
+      paddingTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    subtitle: {
+      marginBottom: spacing.md,
+    },
+    body: {
+      gap: spacing.md,
+      paddingBottom: spacing.xl,
+    },
+    sideBySide: {
+      flexDirection: 'row',
+      gap: spacing.md,
+    },
+    side: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    section: {
+      gap: spacing.sm,
+    },
+    row: {
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      gap: spacing.xs,
+    },
+    pressed: {
+      opacity: 0.7,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+    },
+  });

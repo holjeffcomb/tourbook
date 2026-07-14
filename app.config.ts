@@ -8,6 +8,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...(config as ExpoConfig),
   plugins: [
     ...(config.plugins ?? []),
+    // Registers the Ionicons font with the native project (integrates with expo-font).
+    '@react-native-vector-icons/ionicons',
     [
       '@rnmapbox/maps',
       // No RNMapboxMapsVersion override: the package pins a matching native SDK.

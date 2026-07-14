@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -13,18 +13,43 @@ import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
 import { useCreateImportedTour, useParseTour } from '@/features/tours/queries';
-import type { ImportStop, ParsedTour } from '@/features/tours/import';
+import {
+  resolveImportStop,
+  type ImportStop,
+  type ParsedTour,
+  type VenueMatchConfidence,
+} from '@/features/tours/import';
+import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { getErrorMessage } from '@/lib/errors';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-type EditableStop = { key: string; date: string; venueName: string; city: string };
+type EditableStop = {
+  key: string;
+  date: string;
+  venueName: string;
+  city: string;
+  address: string;
+  confidence?: VenueMatchConfidence;
+  mapboxPlace?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  resolving?: boolean;
+};
 
 let stopCounter = 0;
 function makeStop(partial: Partial<EditableStop> = {}): EditableStop {
   stopCounter += 1;
-  return { key: `stop-${stopCounter}`, date: '', venueName: '', city: '', ...partial };
+  return {
+    key: `stop-${stopCounter}`,
+    date: '',
+    venueName: '',
+    city: '',
+    address: '',
+    ...partial,
+  };
 }
 
 function isValidStop(stop: EditableStop): stop is EditableStop & { date: string } {
@@ -40,6 +65,78 @@ function toEditable(parsed: ParsedTour): EditableStop[] {
   return parsed.stops.map((stop) =>
     makeStop({ date: stop.date ?? '', venueName: stop.venueName, city: stop.city }),
   );
+}
+
+function matchBadge(stop: EditableStop): {
+  label: string;
+  tone: 'ok' | 'warn' | 'bad' | 'busy' | 'idle';
+  detail: string;
+} | null {
+  if (stop.resolving) {
+    return {
+      label: 'Looking up…',
+      tone: 'busy',
+      detail: 'Searching Mapbox for this venue name in the city above.',
+    };
+  }
+  if (!isValidStop(stop)) return null;
+
+  switch (stop.confidence) {
+    case 'confirmed':
+      return {
+        label: 'Matched',
+        tone: 'ok',
+        detail: stop.address
+          ? `Found on map in ${stop.mapboxPlace || stop.city}: ${stop.address}`
+          : `Found on map in ${stop.mapboxPlace || stop.city}.`,
+      };
+    case 'needs_review':
+      return {
+        label: 'Needs review',
+        tone: 'warn',
+        detail: stop.mapboxPlace
+          ? `Mapbox suggested "${stop.mapboxPlace}" — tap the Map target to pick the right place, or add a street address.`
+          : 'Match is uncertain — tap the Map target to search, or add a street address.',
+      };
+    case 'unresolved':
+      return {
+        label: 'Not found',
+        tone: 'bad',
+        detail:
+          'No Mapbox hit for this venue + city. Tap the Map target to search, or type a street address.',
+      };
+    default:
+      return {
+        label: 'Not checked',
+        tone: 'idle',
+        detail: 'Edit venue or city, then tap away to look it up — or tap the Map target to search.',
+      };
+  }
+}
+
+function badgeStyles(
+  tone: 'ok' | 'warn' | 'bad' | 'busy' | 'idle',
+  styles: ReturnType<typeof createStyles>,
+) {
+  switch (tone) {
+    case 'ok':
+      return { wrap: styles.badgeOk, text: 'primary' as const };
+    case 'warn':
+      return { wrap: styles.badgeWarn, text: 'text' as const };
+    case 'bad':
+      return { wrap: styles.badgeBad, text: 'danger' as const };
+    case 'busy':
+      return { wrap: styles.badgeBusy, text: 'textMuted' as const };
+    default:
+      return { wrap: styles.badgeIdle, text: 'textMuted' as const };
+  }
+}
+
+function stopCardStyle(stop: EditableStop, styles: ReturnType<typeof createStyles>) {
+  if (stop.resolving || !isValidStop(stop)) return styles.stopCard;
+  if (stop.confidence === 'needs_review') return [styles.stopCard, styles.stopNeedsReview];
+  if (stop.confidence === 'unresolved') return [styles.stopCard, styles.stopUnresolved];
+  return styles.stopCard;
 }
 
 // Shift the year of an ISO date, preserving month/day (clamps Feb 29 in a
@@ -63,25 +160,80 @@ function yearsInStops(stops: EditableStop[]): number[] {
 }
 
 export function ImportTourScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const parse = useParseTour();
   const create = useCreateImportedTour();
 
+  // The act is chosen up front (in AddTourScreen) and locked here, so the AI
+  // prompt only extracts venues and dates and the tour ties to that exact act.
+  const { act, actId } = useLocalSearchParams<{ act?: string; actId?: string }>();
+  const actName = (act ?? '').trim();
+
   const [rawText, setRawText] = useState('');
   const [phase, setPhase] = useState<'input' | 'review'>('input');
-  const [actName, setActName] = useState('');
   const [tourTitle, setTourTitle] = useState('');
   const [stops, setStops] = useState<EditableStop[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const resolveStop = useCallback(async (key: string, stop: EditableStop) => {
+    if (!isValidStop(stop)) return;
+
+    setStops((prev) =>
+      prev.map((s) => (s.key === key ? { ...s, resolving: true } : s)),
+    );
+
+    try {
+      const resolved = await resolveImportStop(
+        stop.venueName,
+        stop.city,
+        stop.address || null,
+      );
+      setStops((prev) =>
+        prev.map((s) =>
+          s.key === key
+            ? {
+                ...s,
+                confidence: resolved.confidence,
+                mapboxPlace: resolved.mapboxPlace,
+                latitude: resolved.latitude,
+                longitude: resolved.longitude,
+                // Keep a user-typed street; only fill when empty.
+                address: s.address.trim() ? s.address : (resolved.address ?? ''),
+                resolving: false,
+              }
+            : s,
+        ),
+      );
+    } catch {
+      setStops((prev) =>
+        prev.map((s) =>
+          s.key === key ? { ...s, confidence: 'unresolved', resolving: false } : s,
+        ),
+      );
+    }
+  }, []);
+
+  const resolveAllStops = useCallback(
+    async (list: EditableStop[]) => {
+      await Promise.all(
+        list.filter(isValidStop).map((stop) => resolveStop(stop.key, stop)),
+      );
+    },
+    [resolveStop],
+  );
 
   const onParse = async () => {
     setError(null);
     try {
       const parsed = await parse.mutateAsync(rawText);
-      setActName(parsed.actName);
+      // Act is already chosen; only adopt the parsed title.
       setTourTitle(parsed.tourTitle ?? '');
-      setStops(toEditable(parsed));
+      const editable = toEditable(parsed);
+      setStops(editable);
       setPhase('review');
+      void resolveAllStops(editable);
     } catch (err) {
       setError(getErrorMessage(err));
     }
@@ -90,6 +242,18 @@ export function ImportTourScreen() {
   const updateStop = (key: string, patch: Partial<EditableStop>) => {
     setStops((prev) => prev.map((stop) => (stop.key === key ? { ...stop, ...patch } : stop)));
   };
+
+  const reResolveStop = useCallback(
+    (key: string) => {
+      setStops((prev) => {
+        const stop = prev.find((s) => s.key === key);
+        if (stop && isValidStop(stop)) void resolveStop(key, stop);
+        return prev;
+      });
+    },
+    [resolveStop],
+  );
+
   const removeStop = (key: string) => setStops((prev) => prev.filter((stop) => stop.key !== key));
   const addStop = () => setStops((prev) => [...prev, makeStop()]);
   const shiftAllYears = (delta: number) =>
@@ -105,6 +269,10 @@ export function ImportTourScreen() {
 
   const validStops = stops.filter(isValidStop);
   const skipped = stops.length - validStops.length;
+  const needsAttention = validStops.filter(
+    (stop) => stop.confidence === 'needs_review' || stop.confidence === 'unresolved',
+  ).length;
+  const stillResolving = validStops.some((stop) => stop.resolving);
   const canCreate = actName.trim().length > 0 && validStops.length > 0;
 
   const onCreate = async () => {
@@ -113,10 +281,15 @@ export function ImportTourScreen() {
       date: stop.date,
       venueName: stop.venueName.trim(),
       city: stop.city.trim(),
+      address: stop.address.trim() || null,
+      latitude: stop.latitude ?? null,
+      longitude: stop.longitude ?? null,
+      confidence: stop.confidence,
     }));
     try {
       const { id } = await create.mutateAsync({
         actName: actName.trim(),
+        actId: actId ?? null,
         tourTitle: tourTitle.trim() || null,
         stops: payloadStops,
       });
@@ -146,9 +319,19 @@ export function ImportTourScreen() {
           {phase === 'input' ? (
             <>
               <Text variant="title">Import a tour</Text>
+              {!!actName && (
+                <View style={styles.lockedAct}>
+                  <Text variant="caption" color="textMuted">
+                    Act
+                  </Text>
+                  <Text variant="body" style={styles.lockedActName}>
+                    {actName}
+                  </Text>
+                </View>
+              )}
               <Text color="textMuted">
-                Paste tour dates from a poster, listing, or email. We&apos;ll pull out the act,
-                venues, and dates for you to review before saving.
+                Paste tour dates from a poster, listing, or email. We&apos;ll pull out the venues and
+                dates for you to review before saving.
               </Text>
 
               <TextInput
@@ -177,10 +360,32 @@ export function ImportTourScreen() {
             <>
               <Text variant="title">Review import</Text>
               <Text color="textMuted">
-                Check the details below. Fix anything that looks off, then save.
+                Each stop is checked against Mapbox using venue name + city. Tap the Map target next
+                to a venue to open Mapbox search and pick the right place. Amber/red stops need a
+                quick check — you can still create the tour either way.
               </Text>
 
-              <TextField label="Act" value={actName} onChangeText={setActName} autoCapitalize="words" />
+              {needsAttention > 0 && (
+                <View style={styles.attentionBanner}>
+                  <Text variant="body">
+                    {needsAttention} {needsAttention === 1 ? 'stop needs' : 'stops need'} your
+                    attention
+                  </Text>
+                  <Text variant="caption" color="textMuted">
+                    Use the Map target on the venue field to search Mapbox, or add a street address
+                    if it isn&apos;t in the database.
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.lockedAct}>
+                <Text variant="caption" color="textMuted">
+                  Act
+                </Text>
+                <Text variant="body" style={styles.lockedActName}>
+                  {actName}
+                </Text>
+              </View>
               <TextField
                 label="Tour title (optional)"
                 value={tourTitle}
@@ -220,8 +425,11 @@ export function ImportTourScreen() {
 
               {stops.map((stop, index) => {
                 const invalid = !isValidStop(stop);
+                const badge = matchBadge(stop);
+                const badgeTone = badge ? badgeStyles(badge.tone, styles) : null;
+
                 return (
-                  <View key={stop.key} style={styles.stopCard}>
+                  <View key={stop.key} style={stopCardStyle(stop, styles)}>
                     <View style={styles.stopHeader}>
                       <Text variant="caption" color="textMuted">
                         Stop {index + 1}
@@ -230,6 +438,18 @@ export function ImportTourScreen() {
                         Remove
                       </Text>
                     </View>
+
+                    {badge && badgeTone && (
+                      <View style={[styles.badge, badgeTone.wrap]}>
+                        <Text variant="caption" color={badgeTone.text} style={styles.badgeLabel}>
+                          {badge.label}
+                        </Text>
+                        <Text variant="caption" color="textMuted">
+                          {badge.detail}
+                        </Text>
+                      </View>
+                    )}
+
                     <TextField
                       label="Date (YYYY-MM-DD)"
                       value={stop.date}
@@ -239,15 +459,56 @@ export function ImportTourScreen() {
                       error={stop.date && !ISO_DATE.test(stop.date) ? 'Use YYYY-MM-DD' : undefined}
                     />
                     <TextField
-                      label="Venue"
-                      value={stop.venueName}
-                      onChangeText={(value) => updateStop(stop.key, { venueName: value })}
-                      autoCapitalize="words"
-                    />
-                    <TextField
                       label="City"
                       value={stop.city}
-                      onChangeText={(value) => updateStop(stop.key, { city: value })}
+                      onChangeText={(value) =>
+                        updateStop(stop.key, {
+                          city: value,
+                          confidence: undefined,
+                          latitude: null,
+                          longitude: null,
+                        })
+                      }
+                      onBlur={() => reResolveStop(stop.key)}
+                      autoCapitalize="words"
+                    />
+                    <VenueAutocomplete
+                      label="Venue"
+                      placeholder="Venue name"
+                      cityContext={stop.city}
+                      value={stop.venueName}
+                      onChangeText={(value) =>
+                        updateStop(stop.key, {
+                          venueName: value,
+                          confidence: undefined,
+                          latitude: null,
+                          longitude: null,
+                        })
+                      }
+                      onBlur={() => reResolveStop(stop.key)}
+                      onSelectVenue={({ name, city, address, latitude, longitude }) => {
+                        updateStop(stop.key, {
+                          venueName: name,
+                          // Explicit Mapbox pick wins — update city from the chosen place.
+                          city: city.trim() || stop.city,
+                          address: address ?? stop.address,
+                          latitude: latitude ?? null,
+                          longitude: longitude ?? null,
+                          confidence:
+                            latitude != null && longitude != null ? 'confirmed' : 'needs_review',
+                          mapboxPlace: city || stop.mapboxPlace,
+                          resolving: false,
+                        });
+                      }}
+                    />
+                    <TextField
+                      label="Street address (optional)"
+                      placeholder="Only if Mapbox can't find the venue"
+                      value={stop.address}
+                      onChangeText={(value) =>
+                        updateStop(stop.key, { address: value, confidence: undefined })
+                      }
+                      onBlur={() => reResolveStop(stop.key)}
                       autoCapitalize="words"
                     />
                     {invalid && (
@@ -274,7 +535,7 @@ export function ImportTourScreen() {
                   validStops.length === 1 ? 'show' : 'shows'
                 }`}
                 onPress={onCreate}
-                loading={create.isPending}
+                loading={create.isPending || stillResolving}
                 disabled={!canCreate}
               />
               <Text variant="body" color="primary" style={styles.startOver} onPress={() => setPhase('input')}>
@@ -288,7 +549,11 @@ export function ImportTourScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const WARNING_BORDER = '#F59E0B';
+const WARNING_BG = '#FFFBEB';
+
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     paddingTop: spacing.md,
@@ -310,6 +575,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     backgroundColor: colors.background,
+  },
+  lockedAct: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  lockedActName: {
+    fontWeight: '600',
+  },
+  attentionBanner: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: WARNING_BORDER,
+    borderRadius: radius.md,
+    backgroundColor: WARNING_BG,
   },
   yearCard: {
     flexDirection: 'row',
@@ -348,6 +632,37 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surface,
   },
+  stopNeedsReview: {
+    borderColor: WARNING_BORDER,
+    backgroundColor: WARNING_BG,
+  },
+  stopUnresolved: {
+    borderColor: colors.danger,
+    backgroundColor: '#FEF2F2',
+  },
+  badge: {
+    gap: 2,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  badgeLabel: {
+    fontWeight: '700',
+  },
+  badgeOk: {
+    backgroundColor: '#EFF6FF',
+  },
+  badgeWarn: {
+    backgroundColor: '#FEF3C7',
+  },
+  badgeBad: {
+    backgroundColor: '#FEE2E2',
+  },
+  badgeBusy: {
+    backgroundColor: colors.surface,
+  },
+  badgeIdle: {
+    backgroundColor: colors.surface,
+  },
   stopHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -357,4 +672,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.sm,
   },
-});
+  });

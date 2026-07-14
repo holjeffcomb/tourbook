@@ -135,6 +135,9 @@ export type VenueFields = {
   // Empty when the venue isn't booked yet; the city still places it on the map.
   venueName?: string | null;
   venueCity: string;
+  // When the user picked an existing catalog venue, its id is carried through so
+  // we reuse that exact row instead of re-deduping by name+city (avoids dupes).
+  venueId?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   address?: string | null;
@@ -152,6 +155,10 @@ export type CreateShowInput = VenueFields & {
 async function resolveShowLocation(input: VenueFields & { userId: string }) {
   const name = input.venueName?.trim();
   if (name) {
+    // The user picked an existing catalog venue — reuse that exact row.
+    if (input.venueId) {
+      return { venue_id: input.venueId, city: null, latitude: null, longitude: null, address: null };
+    }
     const venueId = await getOrCreateVenue({
       name,
       city: input.venueCity,
@@ -165,11 +172,12 @@ async function resolveShowLocation(input: VenueFields & { userId: string }) {
 
   // No venue yet: geocode the known city so there's still a pin. Best-effort.
   const geo = await geocodeVenue(input.venueCity, '').catch(() => null);
+  const hasCoords = geo?.confidence === 'confirmed';
   return {
     venue_id: null as string | null,
     city: input.venueCity.trim(),
-    latitude: geo?.latitude ?? null,
-    longitude: geo?.longitude ?? null,
+    latitude: hasCoords ? (geo?.latitude ?? null) : null,
+    longitude: hasCoords ? (geo?.longitude ?? null) : null,
     address: null,
   };
 }
@@ -237,8 +245,10 @@ async function resolveOffLocation(input: OffDayFields) {
 
   if ((latitude == null || longitude == null) && city) {
     const geo = await geocodeVenue(city, '').catch(() => null);
-    latitude = geo?.latitude ?? null;
-    longitude = geo?.longitude ?? null;
+    if (geo?.confidence === 'confirmed') {
+      latitude = geo.latitude;
+      longitude = geo.longitude;
+    }
   }
 
   return {

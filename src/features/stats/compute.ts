@@ -118,6 +118,101 @@ export function computeTourStats(stops: TourStop[]): TourStats {
   };
 }
 
+export type VisitedPlace = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  /** How many times the user has been here — drives heatmap/point intensity. */
+  weight: number;
+  label: string;
+  city: string;
+  /** Distinct tours that stopped here (ids match the stopsByTourId keys). */
+  tourIds: string[];
+  /** Most recent visit date (ISO YYYY-MM-DD), or null if none had a date. */
+  lastVisit: string | null;
+  /** Whether any visit here was to a booked venue (vs. a city-only stop). */
+  booked: boolean;
+};
+
+/**
+ * Collapses every located stop across tours into unique places for the Lifetime
+ * map. Stops within ~11m of each other merge into one point, `weight` counts the
+ * visits, and each place tracks the tours and latest date so a tapped marker can
+ * show useful detail. Sorted most-visited first.
+ */
+export function computeVisitedPlaces(stopsByTourId: Record<string, TourStop[]>): VisitedPlace[] {
+  type Accum = Omit<VisitedPlace, 'tourIds'> & { tourIds: Set<string> };
+  const places = new Map<string, Accum>();
+
+  for (const [tourId, stops] of Object.entries(stopsByTourId)) {
+    for (const stop of stops) {
+      const lat = stop.location?.latitude;
+      const lng = stop.location?.longitude;
+      if (lat == null || lng == null) continue;
+
+      const date = ISO_DATE.test(stop.date) ? stop.date : null;
+      const booked = stop.location?.booked ?? false;
+      // ~11m grid so the same venue/place across tours merges into one point.
+      const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+      const existing = places.get(key);
+      if (existing) {
+        existing.weight += 1;
+        existing.tourIds.add(tourId);
+        // Prefer a real venue label over a fallback like "Venue TBD".
+        if ((!existing.label || (!existing.booked && booked)) && stop.location?.name) {
+          existing.label = stop.location.name;
+        }
+        if (!existing.city && stop.location?.city) existing.city = stop.location.city;
+        if (booked) existing.booked = true;
+        if (date && (!existing.lastVisit || date > existing.lastVisit)) existing.lastVisit = date;
+        continue;
+      }
+
+      places.set(key, {
+        id: key,
+        latitude: lat,
+        longitude: lng,
+        weight: 1,
+        label: stop.location?.name ?? '',
+        city: stop.location?.city ?? '',
+        tourIds: new Set([tourId]),
+        lastVisit: date,
+        booked,
+      });
+    }
+  }
+
+  return [...places.values()]
+    .map((p) => ({ ...p, tourIds: [...p.tourIds] }))
+    .sort((a, b) => b.weight - a.weight);
+}
+
+export type TourRoute = {
+  tourId: string;
+  /** Located stops in date order as [lng, lat] pairs. */
+  coordinates: [number, number][];
+};
+
+/**
+ * One ordered route per tour for the Lifetime routes overlay: located stops
+ * sorted by date. Tours with fewer than two located stops are omitted (no line
+ * to draw).
+ */
+export function computeTourRoutes(stopsByTourId: Record<string, TourStop[]>): TourRoute[] {
+  const routes: TourRoute[] = [];
+  for (const [tourId, stops] of Object.entries(stopsByTourId)) {
+    const coordinates = [...stops]
+      .filter((s) => s.location?.latitude != null && s.location?.longitude != null)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .map((s) => [s.location!.longitude as number, s.location!.latitude as number] as [
+        number,
+        number,
+      ]);
+    if (coordinates.length >= 2) routes.push({ tourId, coordinates });
+  }
+  return routes;
+}
+
 export type PassportInput = {
   userId: string;
   tours: { id: string; actName: string }[];
@@ -501,3 +596,36 @@ export function computeNearMisses(
     return x.dateA < y.dateA ? 1 : -1;
   });
 }
+
+/** The later of the two stop dates — used to decide upcoming vs past. */
+export function nearMissReferenceDate(miss: Pick<NearMiss, 'dateA' | 'dateB'>): string {
+  return miss.dateA >= miss.dateB ? miss.dateA : miss.dateB;
+}
+
+export function isUpcomingNearMiss(
+  miss: Pick<NearMiss, 'dateA' | 'dateB'>,
+  today: string,
+): boolean {
+  return nearMissReferenceDate(miss) >= today;
+}
+
+export function partitionNearMisses(
+  misses: NearMiss[],
+  today: string,
+): { upcoming: NearMiss[]; past: NearMiss[] } {
+  const upcoming: NearMiss[] = [];
+  const past: NearMiss[] = [];
+  for (const miss of misses) {
+    if (isUpcomingNearMiss(miss, today)) upcoming.push(miss);
+    else past.push(miss);
+  }
+  // Upcoming: soonest first. Past: most recent first.
+  upcoming.sort((a, b) => nearMissReferenceDate(a).localeCompare(nearMissReferenceDate(b)));
+  past.sort((a, b) => nearMissReferenceDate(b).localeCompare(nearMissReferenceDate(a)));
+  return { upcoming, past };
+}
+
+export function isUpcomingDate(date: string, today: string): boolean {
+  return date >= today;
+}
+

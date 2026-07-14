@@ -4,7 +4,8 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Button } from '@/components/Button';
 import { Text } from '@/components/Text';
 import { dateToISO, formatShowDate, isoToDate } from '@/lib/date';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 type Props = {
   label: string;
@@ -28,6 +29,7 @@ export function DateField({
   anchorDate,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const styles = useThemedStyles(createStyles);
   const pickerValue = value ? isoToDate(value) : anchorDate ? isoToDate(anchorDate) : new Date();
 
   return (
@@ -88,28 +90,29 @@ export function DateField({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: spacing.xs,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  field: {
-    height: 48,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.background,
-  },
-  fieldError: {
-    borderColor: colors.danger,
-  },
-  picker: {
-    gap: spacing.sm,
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      gap: spacing.xs,
+    },
+    labelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    field: {
+      height: 48,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      backgroundColor: colors.surfaceElevated,
+    },
+    fieldError: {
+      borderColor: colors.danger,
+    },
+    picker: {
+      gap: spacing.sm,
+    },
+  });

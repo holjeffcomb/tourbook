@@ -1,16 +1,41 @@
 import { useQuery } from '@tanstack/react-query';
 import { useFriends } from '@/features/social/queries';
-import { getVenue, listVenuePlayers } from '@/features/venues/api';
-import { isMapboxConfigured, suggestPlaces } from '@/lib/mapbox';
+import { getVenue, listVenuePlayers, searchVenues } from '@/features/venues/api';
+import { isMapboxConfigured, searchPlaces } from '@/lib/mapbox';
 
-export function usePlaceSuggestions(query: string, sessionToken: string) {
-  const term = query.trim();
+/**
+ * Suggestions from our own venue catalog (venues other users have already logged).
+ * Independent of Mapbox, so it works even when place search isn't configured.
+ */
+export function useVenueSuggestions(term: string, cityBias?: string, enabled = true) {
+  const q = term.trim();
+  const city = cityBias?.trim() ?? '';
 
   return useQuery({
-    queryKey: ['places', 'suggest', term],
-    queryFn: () => suggestPlaces(term, sessionToken),
-    enabled: term.length >= 2 && isMapboxConfigured(),
-    staleTime: 60_000,
+    queryKey: ['venues', 'search', q, city],
+    queryFn: () => searchVenues(q, city || undefined),
+    enabled: enabled && q.length >= 2,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  });
+}
+
+export function usePlaceSuggestions(
+  query: string,
+  sessionToken: string,
+  city?: string,
+  enabled = true,
+) {
+  const term = query.trim();
+  const cityPart = city?.trim() ?? '';
+
+  return useQuery({
+    queryKey: ['places', 'search', term, cityPart],
+    queryFn: () => searchPlaces(term, sessionToken, cityPart || undefined),
+    enabled: enabled && term.length >= 2 && isMapboxConfigured(),
+    // Don't stick on empty typeahead misses for complete venue names.
+    staleTime: 0,
+    gcTime: 60_000,
   });
 }
 

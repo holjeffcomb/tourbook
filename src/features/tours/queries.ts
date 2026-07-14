@@ -115,7 +115,12 @@ export function useCreateImportedTour() {
   const { session } = useAuth();
 
   return useMutation({
-    mutationFn: (values: { actName: string; tourTitle: string | null; stops: ImportStop[] }) => {
+    mutationFn: (values: {
+      actName: string;
+      actId?: string | null;
+      tourTitle: string | null;
+      stops: ImportStop[];
+    }) => {
       if (!session) throw new Error('You must be signed in to import a tour');
       return createImportedTour({ ...values, userId: session.user.id });
     },

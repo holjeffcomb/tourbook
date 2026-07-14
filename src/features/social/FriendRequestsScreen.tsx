@@ -10,9 +10,12 @@ import {
   useDeclineFriendRequest,
   usePendingFriendships,
 } from '@/features/social/queries';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function FriendRequestsScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const pendingQuery = usePendingFriendships();
   const accept = useAcceptFriendRequest();
@@ -113,7 +116,8 @@ export function FriendRequestsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     paddingTop: spacing.md,
     marginBottom: spacing.sm,
@@ -144,4 +148,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-});
+  });

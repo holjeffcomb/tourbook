@@ -4,7 +4,8 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
 import type { NearMiss } from '@/features/stats/types';
 import { env } from '@/lib/env';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
 
 if (env.mapboxToken) {
   Mapbox.setAccessToken(env.mapboxToken);
@@ -12,11 +13,15 @@ if (env.mapboxToken) {
 
 type Props = {
   nearMiss: NearMiss;
+  height?: number;
 };
 
 type Coord = [number, number];
 
-export function NearMissMap({ nearMiss }: Props) {
+export function NearMissMap({ nearMiss, height = 200 }: Props) {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
+  const { scheme } = useTheme();
   if (!env.mapboxToken) return null;
 
   const a: Coord = [nearMiss.stopA.lng, nearMiss.stopA.lat];
@@ -37,19 +42,24 @@ export function NearMissMap({ nearMiss }: Props) {
   const same = a[0] === b[0] && a[1] === b[1];
 
   return (
-    <View style={styles.container}>
-      <MapView style={styles.map} styleURL={Mapbox.StyleURL.Light} scaleBarEnabled={false}>
+    <View style={[styles.container, { height }]}>
+      <MapView
+        key={scheme}
+        style={styles.map}
+        styleURL={scheme === 'dark' ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light}
+        scaleBarEnabled={false}
+      >
         {same ? (
-          <Camera centerCoordinate={a} zoomLevel={10} animationDuration={0} />
+          <Camera centerCoordinate={a} zoomLevel={11} animationDuration={0} />
         ) : (
           <Camera
             bounds={{
               ne: [Math.max(...lngs), Math.max(...lats)],
               sw: [Math.min(...lngs), Math.min(...lats)],
-              paddingTop: 40,
-              paddingBottom: 40,
-              paddingLeft: 40,
-              paddingRight: 40,
+              paddingTop: 48,
+              paddingBottom: 48,
+              paddingLeft: 48,
+              paddingRight: 48,
             }}
             animationDuration={0}
           />
@@ -87,29 +97,29 @@ export function NearMissMap({ nearMiss }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    height: 200,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  map: {
-    flex: 1,
-  },
-  pin: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-  },
-  pinYou: {
-    backgroundColor: colors.primary,
-  },
-  pinThem: {
-    backgroundColor: colors.text,
-  },
-  pinText: {
-    color: '#fff',
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      borderRadius: radius.md,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    map: {
+      flex: 1,
+    },
+    pin: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: radius.sm,
+    },
+    pinYou: {
+      backgroundColor: colors.primary,
+    },
+    pinThem: {
+      backgroundColor: colors.text,
+    },
+    pinText: {
+      color: '#fff',
+    },
+  });

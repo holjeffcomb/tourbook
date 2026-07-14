@@ -13,9 +13,12 @@ import { TextField } from '@/components/TextField';
 import { useProfileSearch } from '@/features/profile/queries';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import { useDebouncedValue } from '@/lib/useDebouncedValue';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, type ThemeColors } from '@/theme';
+import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
 export function PeopleSearchScreen() {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
   const router = useRouter();
   const [term, setTerm] = useState('');
   const debounced = useDebouncedValue(term, 250);
@@ -87,7 +90,8 @@ export function PeopleSearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
   topBar: {
     paddingTop: spacing.md,
     marginBottom: spacing.sm,
@@ -122,4 +126,4 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
     alignItems: 'center',
   },
-});
+  });

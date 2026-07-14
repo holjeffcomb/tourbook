@@ -46,6 +46,9 @@ export async function getTour(id: string): Promise<TourWithAct> {
 export type CreateTourInput = {
   userId: string;
   actName: string;
+  // When the user picked an existing act, its id is carried through so the tour
+  // ties to that exact act instead of re-deduping (or forking) by name.
+  actId?: string | null;
   role?: string;
   title?: string;
   startDate?: string | null;
@@ -54,7 +57,7 @@ export type CreateTourInput = {
 };
 
 export async function createTour(input: CreateTourInput): Promise<{ id: string }> {
-  const actId = await getOrCreateAct(input.actName, input.userId);
+  const actId = input.actId ?? (await getOrCreateAct(input.actName, input.userId));
 
   const { data, error } = await supabase
     .from('tours')

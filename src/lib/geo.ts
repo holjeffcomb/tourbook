@@ -55,6 +55,89 @@ export function haversineMiles(
   return 3958.7613 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * Samples extra points along a polyline so each segment is broken into ~stepMiles
+ * chunks. Used to turn route lines into a dense point cloud for a heatmap — where
+ * routes overlap, the sampled points pile up and the heat reads hotter.
+ */
+export function densifyPath(
+  coords: [number, number][],
+  stepMiles: number,
+): [number, number][] {
+  if (coords.length === 0) return [];
+  const step = stepMiles > 0 ? stepMiles : 25;
+  const out: [number, number][] = [coords[0]];
+  for (let i = 0; i < coords.length - 1; i += 1) {
+    const [lng1, lat1] = coords[i];
+    const [lng2, lat2] = coords[i + 1];
+    const miles = haversineMiles(lat1, lng1, lat2, lng2);
+    const steps = Math.max(1, Math.round(miles / step));
+    for (let s = 1; s <= steps; s += 1) {
+      const t = s / steps;
+      out.push([lng1 + (lng2 - lng1) * t, lat1 + (lat2 - lat1) * t]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Points along a quadratic-Bézier arc between two [lng, lat] points. The arc bows
+ * out from the straight line by `curvature` × segment length, always toward the
+ * higher-latitude side, so routes read like flight paths. Aesthetic (planar), not
+ * a true great circle.
+ */
+export function arcBetween(
+  a: [number, number],
+  b: [number, number],
+  curvature: number,
+  segments: number,
+): [number, number][] {
+  const steps = Math.max(1, Math.round(segments));
+  const [ax, ay] = a;
+  const [bx, by] = b;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return [a, b];
+
+  // Unit perpendicular, oriented to bow "up" (toward increasing latitude).
+  let px = -dy / len;
+  let py = dx / len;
+  if (py < 0) {
+    px = -px;
+    py = -py;
+  }
+
+  const offset = curvature * len;
+  const cx = (ax + bx) / 2 + px * offset;
+  const cy = (ay + by) / 2 + py * offset;
+
+  const points: [number, number][] = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    const mt = 1 - t;
+    const x = mt * mt * ax + 2 * mt * t * cx + t * t * bx;
+    const y = mt * mt * ay + 2 * mt * t * cy + t * t * by;
+    points.push([x, y]);
+  }
+  return points;
+}
+
+/** Arcs every segment of an ordered path and joins them into one polyline. */
+export function arcedPath(
+  coords: [number, number][],
+  curvature: number,
+  segments: number,
+): [number, number][] {
+  if (coords.length < 2) return coords;
+  const out: [number, number][] = [coords[0]];
+  for (let i = 0; i < coords.length - 1; i += 1) {
+    const arc = arcBetween(coords[i], coords[i + 1], curvature, segments);
+    for (let j = 1; j < arc.length; j += 1) out.push(arc[j]);
+  }
+  return out;
+}
+
 export function formatMiles(miles: number): string {
   if (!Number.isFinite(miles) || miles <= 0) return '0 mi';
   if (miles < 100) return `${miles.toFixed(1)} mi`;

@@ -13,6 +13,9 @@ export const createShowSchema = z.object({
   // places it on the map ("Venue TBD") until a venue is added later.
   venueName: z.string().trim().optional(),
   venueCity: z.string().trim().min(1, 'City is required'),
+  // Set when the user picks an existing venue from our catalog, so we reuse that
+  // exact row instead of re-deduping by name+city. Cleared on any manual edit.
+  venueId: z.string().nullable().optional(),
   // Captured when a venue is picked from Mapbox search; not user-edited.
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),

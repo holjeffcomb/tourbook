@@ -8,6 +8,7 @@ import { DateField } from '@/components/DateField';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { TextField } from '@/components/TextField';
+import { PointMap } from '@/features/maps/PointMap';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { createShowSchema, type CreateShowValues } from '@/features/shows/schema';
 import { getErrorMessage } from '@/lib/errors';
@@ -32,10 +33,15 @@ export function ShowForm({
 }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
-  const { control, handleSubmit, formState, setValue } = useForm<CreateShowValues>({
+  const { control, handleSubmit, formState, setValue, watch } = useForm<CreateShowValues>({
     resolver: zodResolver(createShowSchema),
     defaultValues,
   });
+
+  const venueCity = watch('venueCity');
+  const venueName = watch('venueName');
+  const latitude = watch('latitude');
+  const longitude = watch('longitude');
 
   const submit = handleSubmit(async (values) => {
     setFormError(null);
@@ -84,17 +90,43 @@ export function ShowForm({
 
           <Controller
             control={control}
+            name="venueCity"
+            render={({ field, fieldState }) => (
+              <TextField
+                label="City"
+                placeholder="e.g. Morrison, CO"
+                autoCapitalize="words"
+                value={field.value}
+                onChangeText={(text) => {
+                  field.onChange(text);
+                  // Editing the city breaks the link to a picked venue.
+                  setValue('venueId', null, { shouldDirty: true });
+                }}
+                onBlur={field.onBlur}
+                error={fieldState.error?.message}
+              />
+            )}
+          />
+
+          <Controller
+            control={control}
             name="venueName"
             render={({ field, fieldState }) => (
               <VenueAutocomplete
                 label="Venue (optional)"
+                cityContext={venueCity}
                 value={field.value ?? ''}
-                onChangeText={field.onChange}
+                onChangeText={(text) => {
+                  field.onChange(text);
+                  // Typing a venue name by hand unlinks any previously picked venue.
+                  setValue('venueId', null, { shouldDirty: true });
+                }}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
-                onSelectVenue={({ name, city, address, latitude, longitude }) => {
+                onSelectVenue={({ id, name, city, address, latitude, longitude }) => {
                   setValue('venueName', name, { shouldValidate: true, shouldDirty: true });
-                  setValue('venueCity', city, { shouldValidate: true, shouldDirty: true });
+                  setValue('venueCity', city || venueCity, { shouldValidate: true, shouldDirty: true });
+                  setValue('venueId', id ?? null, { shouldDirty: true });
                   setValue('latitude', latitude ?? null, { shouldDirty: true });
                   setValue('longitude', longitude ?? null, { shouldDirty: true });
                   setValue('address', address ?? null, { shouldDirty: true });
@@ -105,19 +137,28 @@ export function ShowForm({
 
           <Controller
             control={control}
-            name="venueCity"
+            name="address"
             render={({ field, fieldState }) => (
               <TextField
-                label="City"
-                placeholder="e.g. Morrison, CO"
+                label="Street address (optional)"
+                placeholder="Helps when the venue isn't in the map database"
                 autoCapitalize="words"
-                value={field.value}
+                value={field.value ?? ''}
                 onChangeText={field.onChange}
                 onBlur={field.onBlur}
                 error={fieldState.error?.message}
               />
             )}
           />
+
+          {latitude != null && longitude != null && (
+            <PointMap
+              latitude={latitude}
+              longitude={longitude}
+              label={venueName?.trim() || venueCity}
+              height={180}
+            />
+          )}
 
           {!!formError && <Text color="danger">{formError}</Text>}
 
