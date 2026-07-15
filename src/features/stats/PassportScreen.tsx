@@ -1,30 +1,31 @@
 import { useQueries } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { AppHeader } from '@/components/AppHeader';
-import { Button } from '@/components/Button';
-import { Card } from '@/components/Card';
-import { Screen } from '@/components/Screen';
-import { StatGrid } from '@/components/StatGrid';
-import { Text } from '@/components/Text';
+import { useCallback, useMemo, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/features/auth/AuthContext';
-import { PlacesMap } from '@/features/maps/PlacesMap';
+import { TAB_BAR_HEIGHT } from '@/features/maps/mapScene';
 import { listStops } from '@/features/shows/api';
 import { showsKey } from '@/features/shows/queries';
 import { computePassportStats, computeTourRoutes, computeVisitedPlaces } from '@/features/stats/compute';
 import type { TourStop } from '@/features/shows/api';
+import {
+  LifetimeMapExperience,
+  type LifetimeStatus,
+} from '@/features/stats/lifetime/LifetimeMapExperience';
 import { listTourMembers } from '@/features/tours/api';
 import { membersKey, useTours } from '@/features/tours/queries';
-import { formatEarthLaps, formatMiles, formatPercent } from '@/lib/geo';
-import { radius, spacing, type ThemeColors } from '@/theme';
-import { useColors } from '@/theme/ThemeProvider';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The Lifetime tab. This screen owns *data orchestration* only — fetching every
+ * tour's stops and members, deriving stats/places/routes for the active year —
+ * and hands them to `LifetimeMapExperience`, which owns the spatial, map-first
+ * interaction model (full-bleed map + floating header + gesture stats sheet).
+ */
 export function PassportScreen() {
-  const colors = useColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const userId = session?.user.id;
   const toursQuery = useTours();
@@ -73,7 +74,7 @@ export function PassportScreen() {
     return map;
   }, [tourIds, membersQueries]);
 
-  // Years present in the data, most recent first, for the switcher.
+  // Years present in the data, most recent first, for the filter.
   const years = useMemo(() => {
     const set = new Set<number>();
     for (const stops of Object.values(stopsByTourIdAll)) {
@@ -117,244 +118,38 @@ export function PassportScreen() {
     };
   }, [stopsByTourIdAll, membersByTourId, toursQuery.data, userId, selectedYear]);
 
-  const refetchAll = () => {
+  const refetchAll = useCallback(() => {
     toursQuery.refetch();
     stopsQueries.forEach((q) => q.refetch());
     membersQueries.forEach((q) => q.refetch());
-  };
+  }, [toursQuery, stopsQueries, membersQueries]);
+
+  const onPressPerson = useCallback(
+    (id: string) => router.push({ pathname: '/people/[id]', params: { id } }),
+    [router],
+  );
+
+  const status: LifetimeStatus = isLoading
+    ? 'loading'
+    : isError
+      ? 'error'
+      : !stats || stats.tourCount === 0
+        ? 'empty'
+        : 'ready';
 
   return (
-    <Screen>
-      <AppHeader title="Lifetime" subtitle="Your lifetime on the road." />
-
-      {isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : isError ? (
-        <View style={styles.center}>
-          <Text color="danger">Couldn&apos;t load your stats.</Text>
-          <Button title="Retry" variant="secondary" onPress={refetchAll} />
-        </View>
-      ) : !stats || stats.tourCount === 0 ? (
-        <View style={styles.center}>
-          <Text variant="heading">No tours yet</Text>
-          <Text color="textMuted" style={styles.emptyHint}>
-            Join or create a tour to start building your lifetime stats.
-          </Text>
-        </View>
-      ) : (
-        <>
-          {years.length > 0 && (
-            <YearSwitcher
-              years={years}
-              selected={selectedYear}
-              onSelect={setSelectedYear}
-              colors={colors}
-            />
-          )}
-          <ScrollView
-            style={styles.flex}
-            contentContainerStyle={styles.body}
-            showsVerticalScrollIndicator={false}
-          >
-          {places.length > 0 && (
-            <View style={styles.section}>
-              <PlacesMap
-                key={selectedYear ?? 'all'}
-                places={places}
-                routes={routes}
-                height={320}
-              />
-              <Text variant="caption" color="textMuted" style={styles.mapCaption}>
-                Everywhere you&apos;ve been — bigger dots mean more visits. Switch to Routes to see
-                your tours overlaid, hotter where they overlap.
-              </Text>
-            </View>
-          )}
-
-          <Card style={styles.hero}>
-            <Text variant="caption" color="textMuted">
-              Distance around Earth
-            </Text>
-            <Text variant="title" style={styles.heroValue}>
-              {formatEarthLaps(stats.totalMiles)}
-            </Text>
-            <Text color="textMuted">{formatMiles(stats.totalMiles)} total traveled</Text>
-          </Card>
-
-          <StatGrid
-            items={[
-              { label: 'Tours', value: String(stats.tourCount) },
-              { label: 'Shows', value: String(stats.totalShows) },
-              { label: 'Off days', value: String(stats.totalOffDays) },
-              { label: 'Cities', value: String(stats.uniqueCities) },
-              { label: 'Venues', value: String(stats.uniqueVenues) },
-              {
-                label: 'Countries',
-                value: String(stats.uniqueCountries),
-                detail:
-                  stats.uniqueCountries > 0
-                    ? `${formatPercent(stats.countryPercent)} of the world`
-                    : 'Add city + region to stops',
-              },
-            ]}
-          />
-
-          {stats.highlights.length > 0 && (
-            <View style={styles.section}>
-              <Text variant="heading">Highlights</Text>
-              {stats.highlights.map((item) => {
-                const isMostToured =
-                  item.label === 'Most toured with' && stats.mostTouredWith?.userId;
-                return (
-                  <Card key={item.label}>
-                    <Text variant="caption" color="textMuted">
-                      {item.label}
-                    </Text>
-                    {isMostToured ? (
-                      <Text
-                        variant="heading"
-                        color="primary"
-                        onPress={() =>
-                          router.push({
-                            pathname: '/people/[id]',
-                            params: { id: stats.mostTouredWith!.userId },
-                          })
-                        }
-                      >
-                        {item.value}
-                      </Text>
-                    ) : (
-                      <Text variant="heading">{item.value}</Text>
-                    )}
-                    {!!item.detail && <Text color="textMuted">{item.detail}</Text>}
-                  </Card>
-                );
-              })}
-            </View>
-          )}
-
-          {stats.longestTourMiles > 0 && (
-            <Card>
-              <Text variant="caption" color="textMuted">
-                Longest tour
-              </Text>
-              <Text variant="heading">{formatMiles(stats.longestTourMiles)}</Text>
-            </Card>
-          )}
-
-          <Text variant="caption" color="textMuted" style={styles.footnote}>
-            Distances are straight-line miles between stops with map pins. Country counts are
-            inferred from city strings when available.
-          </Text>
-          </ScrollView>
-        </>
-      )}
-    </Screen>
+    <LifetimeMapExperience
+      title="Lifetime"
+      status={status}
+      stats={stats}
+      places={places}
+      routes={routes}
+      years={years}
+      selectedYear={selectedYear}
+      onSelectYear={setSelectedYear}
+      onPressPerson={onPressPerson}
+      onRetry={refetchAll}
+      bottomChrome={TAB_BAR_HEIGHT + insets.bottom}
+    />
   );
 }
-
-function YearSwitcher({
-  years,
-  selected,
-  onSelect,
-  colors,
-}: {
-  years: number[];
-  selected: number | null;
-  onSelect: (year: number | null) => void;
-  colors: ThemeColors;
-}) {
-  return (
-    <View style={styles.yearRow}>
-      <YearPill label="All time" active={selected == null} onPress={() => onSelect(null)} colors={colors} />
-      {years.map((year) => (
-        <YearPill
-          key={year}
-          label={String(year)}
-          active={selected === year}
-          onPress={() => onSelect(year)}
-          colors={colors}
-        />
-      ))}
-    </View>
-  );
-}
-
-function YearPill({
-  label,
-  active,
-  onPress,
-  colors,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  colors: ThemeColors;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      style={[styles.yearPill, active && { backgroundColor: colors.primaryMuted }]}
-    >
-      <Text variant="caption" color={active ? 'primary' : 'textMuted'} style={styles.yearLabel}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
-  yearRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-  },
-  yearPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-  },
-  yearLabel: {
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  body: {
-    gap: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  hero: {
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
-  },
-  heroValue: {
-    fontSize: 40,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  mapCaption: {
-    textAlign: 'center',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  emptyHint: {
-    textAlign: 'center',
-  },
-  footnote: {
-    textAlign: 'center',
-    paddingTop: spacing.sm,
-  },
-});

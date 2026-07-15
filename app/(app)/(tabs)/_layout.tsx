@@ -1,26 +1,9 @@
 import Ionicons from '@react-native-vector-icons/ionicons';
-import { Tabs, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, View, type ColorValue } from 'react-native';
-import { Icon, type IconName } from '@/components/Icon';
+import { Tabs } from 'expo-router';
+import { type ColorValue } from 'react-native';
+import { type IconName } from '@/components/Icon';
+import { TabBarBridge } from '@/features/maps/FloatingTabBar';
 import { useColors } from '@/theme/ThemeProvider';
-
-function AddTabButton() {
-  const router = useRouter();
-  const colors = useColors();
-
-  return (
-    <Pressable
-      onPress={() => router.push('/tours/new')}
-      accessibilityRole="button"
-      accessibilityLabel="Add tour"
-      style={styles.addButton}
-    >
-      <View style={[styles.addCircle, { backgroundColor: colors.primary }]}>
-        <Icon name="add" size={28} color="onPrimary" />
-      </View>
-    </Pressable>
-  );
-}
 
 function tabIcon(active: IconName, inactive: IconName) {
   return ({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) => (
@@ -33,14 +16,15 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      // The map renders on top of the navigator, which would bury a native tab
+      // bar. So draw nothing here and relay state to the app-level FloatingTabBar
+      // (rendered above the map) instead.
+      tabBar={(props) => <TabBarBridge {...props} />}
       screenOptions={{
         headerShown: false,
+        sceneStyle: { backgroundColor: 'transparent' },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: colors.tabBar,
-          borderTopColor: colors.tabBarBorder,
-        },
       }}
     >
       <Tabs.Screen
@@ -68,8 +52,7 @@ export default function TabsLayout() {
         name="add"
         options={{
           title: 'Add',
-          tabBarLabel: () => null,
-          tabBarButton: () => <AddTabButton />,
+          tabBarIcon: tabIcon('add', 'add'),
         }}
         listeners={{
           tabPress: (event) => {
@@ -80,19 +63,3 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  addButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    top: -4,
-  },
-  addCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

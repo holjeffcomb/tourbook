@@ -3,6 +3,9 @@
 // Mapbox driving directions.
 
 export const EARTH_CIRCUMFERENCE_MILES = 24_901;
+// Mean Earth–Moon distance and one astronomical unit (Earth–Sun), in miles.
+export const MOON_DISTANCE_MILES = 238_855;
+export const SUN_DISTANCE_MILES = 92_955_807;
 export const WORLD_COUNTRY_COUNT = 195;
 
 const US_STATES = new Set([
@@ -150,6 +153,21 @@ export function formatEarthLaps(miles: number): string {
   if (laps < 0.01) return '<0.01×';
   if (laps < 10) return `${laps.toFixed(2)}×`;
   return `${laps.toFixed(1)}×`;
+}
+
+/**
+ * Expresses a distance as a fraction of some cosmic target (Earth circumference,
+ * Moon, Sun) — as a multiplier once it's lapped the target (e.g. "2.3×"), or a
+ * percentage of the way there otherwise ("4%", "0.02%").
+ */
+export function formatTripFraction(miles: number, target: number): string {
+  if (!Number.isFinite(miles) || miles <= 0 || target <= 0) return '0%';
+  const ratio = miles / target;
+  if (ratio >= 1) return ratio < 10 ? `${ratio.toFixed(2)}×` : `${ratio.toFixed(1)}×`;
+  const pct = ratio * 100;
+  if (pct >= 1) return `${Math.round(pct)}%`;
+  if (pct >= 0.01) return `${pct.toFixed(2)}%`;
+  return '<0.01%';
 }
 
 export function formatPercent(value: number): string {

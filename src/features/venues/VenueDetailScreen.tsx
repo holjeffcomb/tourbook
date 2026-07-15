@@ -1,10 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
-import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
-import { PointMap } from '@/features/maps/PointMap';
+import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
+import { type MapScene } from '@/features/maps/mapScene';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import { useVenue, useVenuePlayers } from '@/features/venues/queries';
 import { radius, spacing, type ThemeColors } from '@/theme';
@@ -13,46 +15,69 @@ import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 export function VenueDetailScreen() {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
   const venueQuery = useVenue(id);
   const playersQuery = useVenuePlayers(id);
 
-  return (
-    <Screen>
-      <View style={styles.topBar}>
-        <Text variant="body" color="primary" onPress={() => router.back()}>
-          Back
-        </Text>
-      </View>
+  const venue = venueQuery.data;
+  const hasCoords = venue?.latitude != null && venue?.longitude != null;
 
+  const scene = useMemo<MapScene>(() => {
+    const contentInsets = { top: insets.top + 56, left: spacing.md, right: spacing.md };
+    if (!venue || !hasCoords) return { key: `venue-${id}`, contentInsets };
+    const coord: [number, number] = [venue.longitude as number, venue.latitude as number];
+    return {
+      key: `venue-${id}`,
+      // Full street basemap so nearby businesses/POIs read around the venue.
+      variant: 'streets',
+      markers: [{ id: 'venue', coordinate: coord, kind: 'venue', label: venue.name }],
+      focus: [coord],
+      singleZoom: 15,
+      contentInsets,
+    };
+  }, [venue, hasCoords, id, insets.top]);
+
+  const sheetHeader = venue ? (
+    <View style={styles.sheetHeader}>
+      <Text variant="title" numberOfLines={1}>
+        {venue.name}
+      </Text>
+      {!!venue.city && (
+        <Text color="textMuted" numberOfLines={1}>
+          {venue.city}
+        </Text>
+      )}
+    </View>
+  ) : null;
+
+  return (
+    <MapScreenScaffold
+      scene={scene}
+      onBack={() => router.back()}
+      topInset={insets.top}
+      sheetHeader={sheetHeader}
+    >
       {venueQuery.isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
-      ) : venueQuery.isError || !venueQuery.data ? (
+      ) : venueQuery.isError || !venue ? (
         <View style={styles.center}>
           <Text color="danger">Couldn&apos;t load this venue.</Text>
           <Button title="Go back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.body}>
-          <Text variant="title">{venueQuery.data.name}</Text>
-          <Text color="textMuted">{venueQuery.data.city}</Text>
-          {!!venueQuery.data.address && (
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]}
+        >
+          {!!venue.address && (
             <Text variant="caption" color="textMuted">
-              {venueQuery.data.address}
+              {venue.address}
             </Text>
           )}
-
-          <View style={styles.map}>
-            <PointMap
-              latitude={venueQuery.data.latitude}
-              longitude={venueQuery.data.longitude}
-              label={venueQuery.data.name}
-            />
-          </View>
 
           <Text variant="heading" style={styles.section}>
             Who&apos;s played here
@@ -103,50 +128,49 @@ export function VenueDetailScreen() {
           )}
         </ScrollView>
       )}
-    </Screen>
+    </MapScreenScaffold>
   );
 }
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-  topBar: {
-    paddingTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  body: {
-    gap: spacing.sm,
-    paddingBottom: spacing.xl,
-  },
-  map: {
-    marginTop: spacing.sm,
-  },
-  section: {
-    marginTop: spacing.lg,
-  },
-  hint: {
-    marginBottom: spacing.sm,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-  },
-  rowText: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-});
+    sheetHeader: {
+      paddingBottom: spacing.sm,
+      gap: 2,
+    },
+    body: {
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xs,
+    },
+    section: {
+      marginTop: spacing.md,
+    },
+    hint: {
+      marginBottom: spacing.sm,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+    },
+    rowText: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    pressed: {
+      opacity: 0.7,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      padding: spacing.xl,
+    },
+  });

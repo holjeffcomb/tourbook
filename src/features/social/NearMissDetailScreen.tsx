@@ -1,11 +1,13 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
-import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
+import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
+import { type Coord, type MapScene } from '@/features/maps/mapScene';
 import { useProfile } from '@/features/profile/queries';
 import { NearMissListCard } from '@/features/social/NearMissListCard';
-import { NearMissMap } from '@/features/social/NearMissMap';
 import { profileLabel } from '@/features/social/labels';
 import { useFriendNearMisses } from '@/features/social/useFriendNearMisses';
 import type { NearMiss } from '@/features/stats/types';
@@ -66,6 +68,7 @@ function SideCard({
 export function NearMissDetailScreen() {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { id, stopA, stopB } = useLocalSearchParams<{
     id: string;
     stopA: string;
@@ -91,14 +94,44 @@ export function NearMissDetailScreen() {
       )
     : upcoming;
 
-  return (
-    <Screen>
-      <View style={styles.topBar}>
-        <Text variant="body" color="primary" onPress={() => router.back()}>
-          Back
-        </Text>
-      </View>
+  const scene = useMemo<MapScene>(() => {
+    const contentInsets = { top: insets.top + 56, left: spacing.md, right: spacing.md };
+    if (!nearMiss) return { key: `nearmiss-${id}`, contentInsets };
+    const a: Coord = [nearMiss.stopA.lng, nearMiss.stopA.lat];
+    const b: Coord = [nearMiss.stopB.lng, nearMiss.stopB.lat];
+    const same = a[0] === b[0] && a[1] === b[1];
+    return {
+      key: `nearmiss-${nearMiss.stopA.stopId}-${nearMiss.stopB.stopId}`,
+      markers: [
+        { id: 'a', coordinate: a, kind: 'you', label: 'You' },
+        { id: 'b', coordinate: b, kind: 'them', label: 'Them' },
+      ],
+      lines: same ? [] : [{ id: 'connector', segments: [[a, b]], style: 'dashed', color: 'primary' }],
+      focus: same ? [a] : [a, b],
+      singleZoom: 11,
+      contentInsets,
+    };
+  }, [nearMiss, id, insets.top]);
 
+  const notReady = (!areFriendsLoading && !areFriends) || isLoading || !nearMiss;
+
+  const sheetHeader = nearMiss ? (
+    <View style={styles.sheetHeader}>
+      <Text variant="caption" color={isUpcoming(nearMiss) ? 'primary' : 'textMuted'}>
+        {isUpcoming(nearMiss) ? 'Upcoming' : 'Past'} · {kindLabel(nearMiss.kind)} ·{' '}
+        {formatMiles(nearMiss.milesApart)}
+      </Text>
+      <Text variant="title">With {theirName}</Text>
+    </View>
+  ) : null;
+
+  return (
+    <MapScreenScaffold
+      scene={scene}
+      onBack={() => router.back()}
+      topInset={insets.top}
+      sheetHeader={notReady ? undefined : sheetHeader}
+    >
       {!areFriendsLoading && !areFriends ? (
         <View style={styles.center}>
           <Text color="textMuted">Crossed paths are available for friends only.</Text>
@@ -114,15 +147,9 @@ export function NearMissDetailScreen() {
           <Button title="Go back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.body}>
-          <Text variant="caption" color={isUpcoming(nearMiss) ? 'primary' : 'textMuted'}>
-            {isUpcoming(nearMiss) ? 'Upcoming' : 'Past'} · {kindLabel(nearMiss.kind)} ·{' '}
-            {formatMiles(nearMiss.milesApart)}
-          </Text>
-          <Text variant="title">With {theirName}</Text>
-
-          <NearMissMap nearMiss={nearMiss} height={260} />
-
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]}
+        >
           <View style={styles.sides}>
             <SideCard
               title="You"
@@ -132,9 +159,7 @@ export function NearMissDetailScreen() {
               tourTitle={nearMiss.stopA.tourTitle}
               date={nearMiss.dateA}
               tourId={nearMiss.stopA.tourId}
-              onTourPress={(tourId) =>
-                router.push({ pathname: '/tours/[id]', params: { id: tourId } })
-              }
+              onTourPress={(tourId) => router.push({ pathname: '/tours/[id]', params: { id: tourId } })}
             />
             <SideCard
               title={theirName}
@@ -144,9 +169,7 @@ export function NearMissDetailScreen() {
               tourTitle={nearMiss.stopB.tourTitle}
               date={nearMiss.dateB}
               tourId={nearMiss.stopB.tourId}
-              onTourPress={(tourId) =>
-                router.push({ pathname: '/tours/[id]', params: { id: tourId } })
-              }
+              onTourPress={(tourId) => router.push({ pathname: '/tours/[id]', params: { id: tourId } })}
             />
           </View>
 
@@ -175,19 +198,20 @@ export function NearMissDetailScreen() {
           )}
         </ScrollView>
       )}
-    </Screen>
+    </MapScreenScaffold>
   );
 }
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-    topBar: {
-      paddingTop: spacing.md,
-      marginBottom: spacing.sm,
+    sheetHeader: {
+      paddingBottom: spacing.sm,
+      gap: 2,
     },
     body: {
       gap: spacing.md,
-      paddingBottom: spacing.xl,
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xs,
     },
     sides: {
       gap: spacing.sm,
@@ -213,5 +237,6 @@ const createStyles = (colors: ThemeColors) =>
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
+      padding: spacing.xl,
     },
   });
