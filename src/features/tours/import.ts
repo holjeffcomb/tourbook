@@ -25,6 +25,7 @@ export type { VenueMatchConfidence };
 export type ResolvedImportStop = {
   venueName: string;
   city: string;
+  country: string | null;
   address: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -44,6 +45,7 @@ export async function resolveImportStop(
     return {
       venueName: name,
       city: requestedCity,
+      country: null,
       address: address?.trim() || null,
       latitude: null,
       longitude: null,
@@ -57,6 +59,7 @@ export async function resolveImportStop(
     return {
       venueName: name,
       city: requestedCity,
+      country: null,
       address: address?.trim() || null,
       latitude: null,
       longitude: null,
@@ -68,6 +71,7 @@ export async function resolveImportStop(
   return {
     venueName: geo.name || name,
     city: requestedCity,
+    country: geo.country,
     address: geo.address ?? address?.trim() ?? null,
     latitude: geo.latitude,
     longitude: geo.longitude,
@@ -121,6 +125,7 @@ export type ImportStop = {
   date: string;
   venueName: string;
   city: string;
+  country?: string | null;
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -156,6 +161,7 @@ export async function createImportedTour(
     let latitude = stop.latitude ?? null;
     let longitude = stop.longitude ?? null;
     let address = stop.address?.trim() || null;
+    let country = stop.country ?? null;
 
     const hasConfirmedCoords =
       stop.confidence === 'confirmed' && latitude != null && longitude != null;
@@ -164,6 +170,7 @@ export async function createImportedTour(
       const resolved = await resolveImportStop(venueName, requestedCity, address);
       venueName = resolved.venueName;
       address = resolved.address;
+      country = resolved.country ?? country;
       if (resolved.confidence === 'confirmed') {
         latitude = resolved.latitude;
         longitude = resolved.longitude;
@@ -179,6 +186,7 @@ export async function createImportedTour(
       date: stop.date,
       venueName,
       venueCity: requestedCity,
+      venueCountry: country,
       latitude,
       longitude,
       address,

@@ -187,6 +187,40 @@ describe('computePassportStats', () => {
     expect(stats.mostTouredWith?.name).toBe('Alex');
     expect(stats.mostTouredWith?.userId).toBe('friend');
     expect(stats.uniqueCountries).toBe(1);
+    expect(stats.uniqueActs).toBe(1);
+    expect(stats.daysOnRoad).toBe(1);
+    expect(stats.longestShowStreak).toBe(1);
+    expect(stats.firstShowDate).toBe('2026-07-10');
+  });
+
+  it('derives streaks, busiest month, and top act', () => {
+    const show = (id: string, date: string) => stop({ id, date, kind: 'show' as const });
+    const stats = computePassportStats({
+      userId: 'me',
+      tours: [
+        { id: 't1', actName: 'Band A' },
+        { id: 't2', actName: 'Band B' },
+      ],
+      stopsByTourId: {
+        // Three back-to-back August nights, plus an off day and a July show.
+        t1: [show('a', '2026-08-01'), show('b', '2026-08-02'), show('c', '2026-08-03')],
+        t2: [
+          show('d', '2026-07-10'),
+          stop({ id: 'e', date: '2026-08-04', kind: 'off' }),
+        ],
+      },
+      membersByTourId: {},
+    });
+
+    expect(stats.totalShows).toBe(4);
+    expect(stats.uniqueActs).toBe(2);
+    expect(stats.longestShowStreak).toBe(3);
+    expect(stats.busiestMonth?.month).toBe(8);
+    expect(stats.busiestMonth?.shows).toBe(3);
+    // Off day counts toward days on the road but not shows.
+    expect(stats.daysOnRoad).toBe(5);
+    expect(stats.topAct?.name).toBe('Band A');
+    expect(stats.topAct?.shows).toBe(3);
   });
 });
 

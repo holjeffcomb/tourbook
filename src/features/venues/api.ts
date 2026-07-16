@@ -1,3 +1,4 @@
+import { reverseGeocodeCountry } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
 
 // Mirrors the DB's generated normalized columns (lower(btrim(...))) so client
@@ -24,6 +25,7 @@ export type VenueInput = {
   latitude?: number | null;
   longitude?: number | null;
   address?: string | null;
+  country?: string | null;
 };
 
 /**
@@ -38,7 +40,7 @@ export async function getOrCreateVenue(input: VenueInput): Promise<string> {
 
   const { data: existing, error: findError } = await supabase
     .from('venues')
-    .select('id, latitude')
+    .select('id, latitude, country')
     .eq('normalized_name', normalizedName)
     .eq('normalized_city', normalizedCity)
     .maybeSingle();
@@ -55,6 +57,10 @@ export async function getOrCreateVenue(input: VenueInput): Promise<string> {
         })
         .eq('id', existing.id);
     }
+    // Backfill the country on venues created before it was captured.
+    if (input.country && existing.country == null) {
+      await supabase.from('venues').update({ country: input.country }).eq('id', existing.id);
+    }
     return existing.id;
   }
 
@@ -70,7 +76,16 @@ export async function getOrCreateVenue(input: VenueInput): Promise<string> {
     });
     if (nearbyError) throw nearbyError;
     const match = nearby?.[0];
-    if (match) return match.id;
+    if (match) {
+      if (input.country) {
+        await supabase
+          .from('venues')
+          .update({ country: input.country })
+          .eq('id', match.id)
+          .is('country', null);
+      }
+      return match.id;
+    }
   }
 
   const { data, error } = await supabase
@@ -82,6 +97,7 @@ export async function getOrCreateVenue(input: VenueInput): Promise<string> {
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
       address: input.address ?? null,
+      country: input.country ?? null,
     })
     .select('id')
     .single();
@@ -99,6 +115,7 @@ export type Venue = {
   id: string;
   name: string;
   city: string;
+  country: string | null;
   latitude: number | null;
   longitude: number | null;
   address: string | null;
@@ -107,11 +124,38 @@ export type Venue = {
 export async function getVenue(id: string): Promise<Venue> {
   const { data, error } = await supabase
     .from('venues')
-    .select('id, name, city, latitude, longitude, address')
+    .select('id, name, city, country, latitude, longitude, address')
     .eq('id', id)
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * For venues that have coordinates but no stored country (typical of Euro stops
+ * whose city is just "Berlin"), reverse-geocode and persist the country. Returns
+ * a map of venueId → country for callers to patch in-memory rows immediately.
+ */
+export async function backfillVenueCountries(
+  venues: { id: string; country: string | null; latitude: number | null; longitude: number | null }[],
+): Promise<Map<string, string>> {
+  const filled = new Map<string, string>();
+  const missing = venues.filter(
+    (v) => !v.country?.trim() && v.latitude != null && v.longitude != null,
+  );
+  if (missing.length === 0) return filled;
+
+  // Deduplicate by id — a tour can hit the same venue twice.
+  const unique = new Map(missing.map((v) => [v.id, v]));
+  await Promise.all(
+    [...unique.values()].map(async (v) => {
+      const country = await reverseGeocodeCountry(v.longitude as number, v.latitude as number);
+      if (!country) return;
+      filled.set(v.id, country);
+      await supabase.from('venues').update({ country }).eq('id', v.id);
+    }),
+  );
+  return filled;
 }
 
 export type VenueSuggestion = {

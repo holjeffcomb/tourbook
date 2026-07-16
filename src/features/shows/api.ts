@@ -1,5 +1,5 @@
-import { getOrCreateVenue } from '@/features/venues/api';
-import { geocodeVenue } from '@/lib/mapbox';
+import { backfillVenueCountries, getOrCreateVenue } from '@/features/venues/api';
+import { geocodeVenue, reverseGeocodeCountry } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
 
 // A tour's itinerary is a list of "stops" (stored in the `shows` table). A stop's
@@ -14,6 +14,7 @@ export type ShowVenue = {
   id: string;
   name: string;
   city: string;
+  country: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -24,6 +25,8 @@ export type ShowVenue = {
 export type StopLocation = {
   name: string;
   city: string;
+  /** Present when geocoded / backfilled; omitted on older or city-only stops. */
+  country?: string | null;
   address: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -42,7 +45,7 @@ export type TourStop = {
 };
 
 const stopSelect =
-  'id, date, kind, label, city, latitude, longitude, address, created_at, created_by, venue:venues(id, name, city, latitude, longitude)';
+  'id, date, kind, label, city, latitude, longitude, address, created_at, created_by, venue:venues(id, name, city, country, latitude, longitude)';
 
 type StopRow = {
   id: string;
@@ -64,6 +67,7 @@ function toStop(row: StopRow): TourStop {
     location = {
       name: row.venue.name,
       city: row.venue.city,
+      country: row.venue.country,
       address: null,
       latitude: row.venue.latitude,
       longitude: row.venue.longitude,
@@ -74,6 +78,7 @@ function toStop(row: StopRow): TourStop {
     location = {
       name: row.label || fallback,
       city: row.city ?? '',
+      country: null,
       address: row.address,
       latitude: row.latitude,
       longitude: row.longitude,
@@ -100,7 +105,42 @@ export async function listStops(tourId: string): Promise<TourStop[]> {
     .eq('tour_id', tourId)
     .order('date', { ascending: true });
   if (error) throw error;
-  return ((data ?? []) as unknown as StopRow[]).map(toStop);
+  const stops = ((data ?? []) as unknown as StopRow[]).map(toStop);
+
+  // Euro (and other) tours often store bare city names with null venue.country.
+  // Reverse-geocode those so the countries stat is accurate on first load.
+  const venueRows = stops
+    .filter((s) => s.venueId && s.location)
+    .map((s) => ({
+      id: s.venueId as string,
+      country: s.location!.country ?? null,
+      latitude: s.location!.latitude,
+      longitude: s.location!.longitude,
+    }));
+  const filled = await backfillVenueCountries(venueRows);
+  if (filled.size > 0) {
+    for (const stop of stops) {
+      if (!stop.venueId || !stop.location) continue;
+      const country = filled.get(stop.venueId);
+      if (country) stop.location.country = country;
+    }
+  }
+
+  // City-only / TBD stops: no venue row to persist, but we can still resolve a
+  // country from coordinates for this response so tour stats count them.
+  await Promise.all(
+    stops.map(async (stop) => {
+      if (!stop.location || stop.location.country || stop.location.latitude == null) return;
+      if (stop.location.longitude == null) return;
+      const country = await reverseGeocodeCountry(
+        stop.location.longitude,
+        stop.location.latitude,
+      );
+      if (country) stop.location.country = country;
+    }),
+  );
+
+  return stops;
 }
 
 export type StopDetail = {
@@ -141,6 +181,8 @@ export type VenueFields = {
   latitude?: number | null;
   longitude?: number | null;
   address?: string | null;
+  /** Country from the geocoder, persisted on the venue for the countries stat. */
+  venueCountry?: string | null;
 };
 
 export type CreateShowInput = VenueFields & {
@@ -166,6 +208,7 @@ async function resolveShowLocation(input: VenueFields & { userId: string }) {
       latitude: input.latitude,
       longitude: input.longitude,
       address: input.address,
+      country: input.venueCountry,
     });
     return { venue_id: venueId, city: null, latitude: null, longitude: null, address: null };
   }

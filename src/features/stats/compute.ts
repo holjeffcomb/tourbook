@@ -1,5 +1,6 @@
 import type { TourStop } from '@/features/shows/api';
 import type { TourMember } from '@/features/tours/api';
+import { formatShowDate, isoToDate } from '@/lib/date';
 import {
   EARTH_CIRCUMFERENCE_MILES,
   haversineMiles,
@@ -8,6 +9,46 @@ import {
   WORLD_COUNTRY_COUNT,
 } from '@/lib/geo';
 import type { DriveSegment, NearMiss, OverlapStats, PassportStats, TourStats } from '@/features/stats/types';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const WEEKDAY_PLURAL = [
+  'Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays',
+];
+
+/** Day index (days since epoch, UTC) for an ISO date — for consecutive-day math. */
+function isoDayNumber(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Math.floor(Date.UTC(y, (m ?? 1) - 1, d ?? 1) / 86_400_000);
+}
+
+/** Longest run of consecutive calendar days present in the given ISO dates. */
+function longestConsecutiveRun(dates: Iterable<string>): number {
+  const days = [...new Set([...dates])].map(isoDayNumber).sort((a, b) => a - b);
+  if (days.length === 0) return 0;
+  let best = 1;
+  let run = 1;
+  for (let i = 1; i < days.length; i += 1) {
+    if (days[i] === days[i - 1] + 1) {
+      run += 1;
+      best = Math.max(best, run);
+    } else {
+      run = 1;
+    }
+  }
+  return best;
+}
+
+function topEntry<K>(map: Map<K, number>): { key: K; count: number } | null {
+  let best: { key: K; count: number } | null = null;
+  for (const [key, count] of map) {
+    if (!best || count > best.count) best = { key, count };
+  }
+  return best;
+}
 
 function stopLabel(stop: TourStop): string {
   if (stop.location?.name) return stop.location.name;
@@ -60,12 +101,22 @@ function showOffLabel(showCount: number, offDayCount: number): string {
   return `${showCount}:${offDayCount} (${ratio} shows per off day)`;
 }
 
+/**
+ * The country for a stop: prefer the one the geocoder saved on the venue, and
+ * fall back to parsing it out of the free-text city (older data / city-only
+ * stops that predate stored countries).
+ */
+function stopCountry(stop: TourStop): string | null {
+  const stored = stop.location?.country?.trim();
+  if (stored) return stored;
+  const city = stop.location?.city;
+  return city ? inferCountryFromCity(city) : null;
+}
+
 function uniqueCountriesFromStops(stops: TourStop[]): string[] {
   const countries = new Set<string>();
   for (const stop of stops) {
-    const city = stop.location?.city;
-    if (!city) continue;
-    const country = inferCountryFromCity(city);
+    const country = stopCountry(stop);
     if (country) countries.add(country);
   }
   return [...countries].sort();
@@ -86,6 +137,15 @@ export function computeTourStats(stops: TourStop[]): TourStats {
   const showCount = stops.filter((s) => s.kind === 'show').length;
   const offDayCount = stops.filter((s) => s.kind === 'off').length;
   const located = locatedStops(stops);
+  const calendarDays = calendarSpanDays(stops);
+
+  // Days on tour without a show — derived from the date span so gaps count even
+  // when the user hasn't entered explicit off days.
+  const showDates = new Set<string>();
+  for (const stop of stops) {
+    if (stop.kind === 'show' && ISO_DATE.test(stop.date)) showDates.add(stop.date);
+  }
+  const offDays = Math.max(0, calendarDays - showDates.size);
   const segments = computeDriveSegments(stops);
   const totalMiles = segments.reduce((sum, s) => sum + s.miles, 0);
 
@@ -102,9 +162,10 @@ export function computeTourStats(stops: TourStop[]): TourStats {
   return {
     showCount,
     offDayCount,
+    offDays,
     totalStops: stops.length,
     showOffLabel: showOffLabel(showCount, offDayCount),
-    calendarDays: calendarSpanDays(stops),
+    calendarDays,
     uniqueCities: cities.size,
     uniqueVenues: venues.size,
     locatedStops: located.length,
@@ -128,6 +189,8 @@ export type VisitedPlace = {
   city: string;
   /** Distinct tours that stopped here (ids match the stopsByTourId keys). */
   tourIds: string[];
+  /** Earliest visit date (ISO YYYY-MM-DD), or null if none had a date. */
+  firstVisit: string | null;
   /** Most recent visit date (ISO YYYY-MM-DD), or null if none had a date. */
   lastVisit: string | null;
   /** Whether any visit here was to a booked venue (vs. a city-only stop). */
@@ -164,6 +227,7 @@ export function computeVisitedPlaces(stopsByTourId: Record<string, TourStop[]>):
         }
         if (!existing.city && stop.location?.city) existing.city = stop.location.city;
         if (booked) existing.booked = true;
+        if (date && (!existing.firstVisit || date < existing.firstVisit)) existing.firstVisit = date;
         if (date && (!existing.lastVisit || date > existing.lastVisit)) existing.lastVisit = date;
         continue;
       }
@@ -176,6 +240,7 @@ export function computeVisitedPlaces(stopsByTourId: Record<string, TourStop[]>):
         label: stop.location?.name ?? '',
         city: stop.location?.city ?? '',
         tourIds: new Set([tourId]),
+        firstVisit: date,
         lastVisit: date,
         booked,
       });
@@ -224,25 +289,40 @@ export function computePassportStats(input: PassportInput): PassportStats {
   const { userId, tours, stopsByTourId, membersByTourId } = input;
 
   let totalShows = 0;
-  let totalOffDays = 0;
   let totalMiles = 0;
   let longestTourMiles = 0;
   let longestSingleDrive: DriveSegment | null = null;
+  let firstShowDate: string | null = null;
+  let lastShowDate: string | null = null;
 
   const cityCounts = new Map<string, { city: string; count: number }>();
   const venueCounts = new Map<string, { name: string; city: string; count: number }>();
   const countries = new Set<string>();
   const years = new Set<number>();
   const coMemberTours = new Map<string, { userId: string; name: string; tourCount: number }>();
+  const actNames = new Set<string>();
+  const actShows = new Map<string, number>();
+  const showsByYear = new Map<number, number>();
+  const showsByMonth = new Map<number, number>();
+  const showsByWeekday = new Map<number, number>();
+  const showDates = new Set<string>();
+  const allDates = new Set<string>();
 
   for (const tour of tours) {
     const stops = stopsByTourId[tour.id] ?? [];
     const tourStats = computeTourStats(stops);
 
     totalShows += tourStats.showCount;
-    totalOffDays += tourStats.offDayCount;
     totalMiles += tourStats.totalMiles;
     longestTourMiles = Math.max(longestTourMiles, tourStats.totalMiles);
+
+    const actName = tour.actName?.trim();
+    if (actName) {
+      actNames.add(actName);
+      if (tourStats.showCount > 0) {
+        actShows.set(actName, (actShows.get(actName) ?? 0) + tourStats.showCount);
+      }
+    }
 
     if (
       tourStats.longestDrive &&
@@ -271,6 +351,19 @@ export function computePassportStats(input: PassportInput): PassportStats {
 
       if (stop.date && ISO_DATE.test(stop.date)) {
         years.add(Number(stop.date.slice(0, 4)));
+        allDates.add(stop.date);
+
+        if (stop.kind === 'show') {
+          showDates.add(stop.date);
+          if (!firstShowDate || stop.date < firstShowDate) firstShowDate = stop.date;
+          if (!lastShowDate || stop.date > lastShowDate) lastShowDate = stop.date;
+          const year = Number(stop.date.slice(0, 4));
+          const month = Number(stop.date.slice(5, 7));
+          const weekday = isoToDate(stop.date).getDay();
+          showsByYear.set(year, (showsByYear.get(year) ?? 0) + 1);
+          showsByMonth.set(month, (showsByMonth.get(month) ?? 0) + 1);
+          showsByWeekday.set(weekday, (showsByWeekday.get(weekday) ?? 0) + 1);
+        }
       }
     }
 
@@ -288,29 +381,99 @@ export function computePassportStats(input: PassportInput): PassportStats {
   const mostTouredWith =
     [...coMemberTours.values()].sort((a, b) => b.tourCount - a.tourCount)[0] ?? null;
 
+  const topActEntry = topEntry(actShows);
+  const topAct = topActEntry ? { name: topActEntry.key, shows: topActEntry.count } : null;
+  const busiestYearEntry = topEntry(showsByYear);
+  const busiestYear = busiestYearEntry
+    ? { year: busiestYearEntry.key, shows: busiestYearEntry.count }
+    : null;
+  const busiestMonthEntry = topEntry(showsByMonth);
+  const busiestMonth = busiestMonthEntry
+    ? { month: busiestMonthEntry.key, shows: busiestMonthEntry.count }
+    : null;
+  const weekdayEntry = topEntry(showsByWeekday);
+  const favoriteWeekday = weekdayEntry
+    ? { weekday: weekdayEntry.key, shows: weekdayEntry.count }
+    : null;
+  const longestShowStreak = longestConsecutiveRun(showDates);
+
   const uniqueCountries = countries.size;
   const countryPercent = uniqueCountries > 0 ? (uniqueCountries / WORLD_COUNTRY_COUNT) * 100 : 0;
   const earthLaps = totalMiles / EARTH_CIRCUMFERENCE_MILES;
 
+  const uniqueActs = actNames.size;
+  const multiYear = years.size > 1;
+
   const highlights: PassportStats['highlights'] = [];
-  if (mostVisitedCity) {
+  if (firstShowDate) {
     highlights.push({
-      label: 'Most visited city',
-      value: mostVisitedCity.city,
-      detail: `${mostVisitedCity.count} stop${mostVisitedCity.count === 1 ? '' : 's'}`,
+      group: 'time',
+      label: 'On the road since',
+      value: firstShowDate.slice(0, 4),
+      detail: `First show · ${formatShowDate(firstShowDate)}`,
     });
   }
-  if (mostVisitedVenue) {
+  if (busiestYear && multiYear) {
     highlights.push({
-      label: 'Most visited venue',
+      group: 'time',
+      label: 'Busiest year',
+      value: String(busiestYear.year),
+      detail: `${busiestYear.shows} show${busiestYear.shows === 1 ? '' : 's'}`,
+    });
+  }
+  if (busiestMonth && totalShows >= 3) {
+    highlights.push({
+      group: 'time',
+      label: 'Favorite month',
+      value: MONTH_NAMES[busiestMonth.month - 1] ?? String(busiestMonth.month),
+      detail: `${busiestMonth.shows} show${busiestMonth.shows === 1 ? '' : 's'} all-time`,
+    });
+  }
+  if (favoriteWeekday && totalShows >= 3) {
+    highlights.push({
+      group: 'time',
+      label: 'Plays the most on',
+      value: WEEKDAY_PLURAL[favoriteWeekday.weekday] ?? '—',
+      detail: `${favoriteWeekday.shows} show${favoriteWeekday.shows === 1 ? '' : 's'}`,
+    });
+  }
+  if (longestShowStreak >= 3) {
+    highlights.push({
+      group: 'time',
+      label: 'Longest run',
+      value: `${longestShowStreak} nights`,
+      detail: 'back-to-back shows',
+    });
+  }
+  if (mostVisitedCity && mostVisitedCity.count > 1) {
+    highlights.push({
+      group: 'places',
+      label: 'Home away from home',
+      value: mostVisitedCity.city,
+      detail: `${mostVisitedCity.count} stops`,
+    });
+  }
+  if (mostVisitedVenue && mostVisitedVenue.count > 1) {
+    highlights.push({
+      group: 'places',
+      label: 'Most played venue',
       value: mostVisitedVenue.name,
       detail: mostVisitedVenue.city
         ? `${mostVisitedVenue.city} · ${mostVisitedVenue.count}×`
         : `${mostVisitedVenue.count}×`,
     });
   }
+  if (topAct && uniqueActs > 1) {
+    highlights.push({
+      group: 'people',
+      label: 'Most shows for',
+      value: topAct.name,
+      detail: `${topAct.shows} show${topAct.shows === 1 ? '' : 's'}`,
+    });
+  }
   if (mostTouredWith) {
     highlights.push({
+      group: 'people',
       label: 'Most toured with',
       value: mostTouredWith.name,
       detail: `${mostTouredWith.tourCount} tour${mostTouredWith.tourCount === 1 ? '' : 's'}`,
@@ -318,24 +481,24 @@ export function computePassportStats(input: PassportInput): PassportStats {
   }
   if (longestSingleDrive) {
     highlights.push({
+      group: 'road',
       label: 'Longest leg',
-      value: `${Math.round(longestSingleDrive.miles)} mi`,
+      value: `${Math.round(longestSingleDrive.miles).toLocaleString()} mi`,
       detail: `${longestSingleDrive.fromLabel} → ${longestSingleDrive.toLabel}`,
     });
   }
-  if (years.size > 0) {
-    const sorted = [...years].sort();
+  if (longestTourMiles > 0) {
     highlights.push({
-      label: 'Years on the road',
-      value: sorted.length === 1 ? String(sorted[0]) : `${sorted[0]}–${sorted[sorted.length - 1]}`,
-      detail: `${sorted.length} year${sorted.length === 1 ? '' : 's'}`,
+      group: 'road',
+      label: 'Longest tour',
+      value: `${Math.round(longestTourMiles).toLocaleString()} mi`,
+      detail: 'total distance',
     });
   }
 
   return {
     tourCount: tours.length,
     totalShows,
-    totalOffDays,
     totalMiles,
     earthLaps,
     uniqueCities: cityCounts.size,
@@ -343,9 +506,18 @@ export function computePassportStats(input: PassportInput): PassportStats {
     uniqueCountries,
     countryPercent,
     countriesWithData: uniqueCountries,
+    uniqueActs,
+    daysOnRoad: allDates.size,
+    longestShowStreak,
+    firstShowDate,
+    lastShowDate,
     mostVisitedCity,
     mostVisitedVenue,
     mostTouredWith,
+    topAct,
+    busiestYear,
+    busiestMonth,
+    favoriteWeekday,
     longestTourMiles,
     longestSingleDrive,
     highlights,
@@ -431,11 +603,7 @@ export function computeOverlap(input: OverlapInput): OverlapStats {
 
   const venuesA = new Set(flatA.map((x) => venueKey(x.stop)).filter(Boolean) as string[]);
   const citiesA = new Set(flatA.map((x) => cityKey(x.stop)).filter(Boolean) as string[]);
-  const countriesA = new Set(
-    flatA
-      .map((x) => (x.stop.location?.city ? inferCountryFromCity(x.stop.location.city) : null))
-      .filter(Boolean) as string[],
-  );
+  const countriesA = new Set(flatA.map((x) => stopCountry(x.stop)).filter(Boolean) as string[]);
 
   const mutualVenues = new Set<string>();
   const mutualCities = new Set<string>();
@@ -454,7 +622,7 @@ export function computeOverlap(input: OverlapInput): OverlapStats {
       mutualCities.add(c);
       cityLabels.set(c, stop.location?.city ?? c);
     }
-    const country = stop.location?.city ? inferCountryFromCity(stop.location.city) : null;
+    const country = stopCountry(stop);
     if (country && countriesA.has(country)) mutualCountries.add(country);
   }
 

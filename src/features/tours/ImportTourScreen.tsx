@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -20,9 +21,19 @@ import {
   type VenueMatchConfidence,
 } from '@/features/tours/import';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
+import { formatShowDate } from '@/lib/date';
 import { getErrorMessage } from '@/lib/errors';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
+
+/** Translucent tint from a hex colour — adapts over light or dark surfaces. */
+function withAlpha(hex: string, alpha: number): string {
+  const v = hex.replace('#', '');
+  const r = parseInt(v.slice(0, 2), 16);
+  const g = parseInt(v.slice(2, 4), 16);
+  const b = parseInt(v.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -34,9 +45,12 @@ type EditableStop = {
   address: string;
   confidence?: VenueMatchConfidence;
   mapboxPlace?: string | null;
+  country?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   resolving?: boolean;
+  /** Matched stops collapse to a compact row; expand to edit them. */
+  expanded?: boolean;
 };
 
 let stopCounter = 0;
@@ -120,9 +134,9 @@ function badgeStyles(
 ) {
   switch (tone) {
     case 'ok':
-      return { wrap: styles.badgeOk, text: 'primary' as const };
+      return { wrap: styles.badgeOk, text: 'success' as const };
     case 'warn':
-      return { wrap: styles.badgeWarn, text: 'text' as const };
+      return { wrap: styles.badgeWarn, text: 'warning' as const };
     case 'bad':
       return { wrap: styles.badgeBad, text: 'danger' as const };
     case 'busy':
@@ -137,6 +151,11 @@ function stopCardStyle(stop: EditableStop, styles: ReturnType<typeof createStyle
   if (stop.confidence === 'needs_review') return [styles.stopCard, styles.stopNeedsReview];
   if (stop.confidence === 'unresolved') return [styles.stopCard, styles.stopUnresolved];
   return styles.stopCard;
+}
+
+/** A confirmed, valid stop — rendered as a compact row (collapsible) once matched. */
+function isMatched(stop: EditableStop): boolean {
+  return !stop.resolving && isValidStop(stop) && stop.confidence === 'confirmed';
 }
 
 // Shift the year of an ISO date, preserving month/day (clamps Feb 29 in a
@@ -197,6 +216,7 @@ export function ImportTourScreen() {
                 ...s,
                 confidence: resolved.confidence,
                 mapboxPlace: resolved.mapboxPlace,
+                country: resolved.country,
                 latitude: resolved.latitude,
                 longitude: resolved.longitude,
                 // Keep a user-typed street; only fill when empty.
@@ -243,6 +263,11 @@ export function ImportTourScreen() {
     setStops((prev) => prev.map((stop) => (stop.key === key ? { ...stop, ...patch } : stop)));
   };
 
+  const toggleExpand = (key: string) =>
+    setStops((prev) =>
+      prev.map((stop) => (stop.key === key ? { ...stop, expanded: !stop.expanded } : stop)),
+    );
+
   const reResolveStop = useCallback(
     (key: string) => {
       setStops((prev) => {
@@ -281,6 +306,7 @@ export function ImportTourScreen() {
       date: stop.date,
       venueName: stop.venueName.trim(),
       city: stop.city.trim(),
+      country: stop.country ?? null,
       address: stop.address.trim() || null,
       latitude: stop.latitude ?? null,
       longitude: stop.longitude ?? null,
@@ -360,22 +386,31 @@ export function ImportTourScreen() {
             <>
               <Text variant="title">Review import</Text>
               <Text color="textMuted">
-                Each stop is checked against Mapbox using venue name + city. Tap the Map target next
-                to a venue to open Mapbox search and pick the right place. Amber/red stops need a
-                quick check — you can still create the tour either way.
+                Each stop is checked against Mapbox using venue name + city. Matched stops are
+                collapsed below — tap one to edit it. The highlighted stops are the ones that need a
+                quick look.
               </Text>
 
-              {needsAttention > 0 && (
+              {needsAttention > 0 ? (
                 <View style={styles.attentionBanner}>
-                  <Text variant="body">
-                    {needsAttention} {needsAttention === 1 ? 'stop needs' : 'stops need'} your
-                    attention
+                  <Text variant="body" color="warning" style={styles.attentionTitle}>
+                    {needsAttention} {needsAttention === 1 ? 'stop needs' : 'stops need'} a look
                   </Text>
                   <Text variant="caption" color="textMuted">
-                    Use the Map target on the venue field to search Mapbox, or add a street address
+                    Tap the Map target on the venue field to search Mapbox, or add a street address
                     if it isn&apos;t in the database.
                   </Text>
                 </View>
+              ) : (
+                validStops.length > 0 &&
+                !stillResolving && (
+                  <View style={styles.allClearBanner}>
+                    <Text variant="body" color="success" style={styles.attentionTitle}>
+                      All {validStops.length} {validStops.length === 1 ? 'stop is' : 'stops are'}{' '}
+                      matched
+                    </Text>
+                  </View>
+                )
               )}
 
               <View style={styles.lockedAct}>
@@ -428,15 +463,55 @@ export function ImportTourScreen() {
                 const badge = matchBadge(stop);
                 const badgeTone = badge ? badgeStyles(badge.tone, styles) : null;
 
+                // Matched stops collapse to a single tidy row so attention lands
+                // on the ones that still need work. Tap to expand and edit.
+                if (isMatched(stop) && !stop.expanded) {
+                  return (
+                    <Pressable
+                      key={stop.key}
+                      style={({ pressed }) => [styles.matchedRow, pressed && styles.matchedRowPressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${stop.venueName}`}
+                      onPress={() => toggleExpand(stop.key)}
+                    >
+                      <View style={styles.matchedCheck}>
+                        <Text style={styles.matchedCheckMark}>✓</Text>
+                      </View>
+                      <View style={styles.matchedInfo}>
+                        <Text variant="body" numberOfLines={1} style={styles.matchedVenue}>
+                          {stop.venueName}
+                        </Text>
+                        <Text variant="caption" color="textMuted" numberOfLines={1}>
+                          {formatShowDate(stop.date)} · {stop.mapboxPlace || stop.city}
+                        </Text>
+                      </View>
+                      <Text variant="caption" color="primary">
+                        Edit ›
+                      </Text>
+                    </Pressable>
+                  );
+                }
+
                 return (
                   <View key={stop.key} style={stopCardStyle(stop, styles)}>
                     <View style={styles.stopHeader}>
                       <Text variant="caption" color="textMuted">
                         Stop {index + 1}
                       </Text>
-                      <Text variant="caption" color="danger" onPress={() => removeStop(stop.key)}>
-                        Remove
-                      </Text>
+                      <View style={styles.stopHeaderActions}>
+                        {isMatched(stop) && (
+                          <Text
+                            variant="caption"
+                            color="primary"
+                            onPress={() => toggleExpand(stop.key)}
+                          >
+                            Collapse
+                          </Text>
+                        )}
+                        <Text variant="caption" color="danger" onPress={() => removeStop(stop.key)}>
+                          Remove
+                        </Text>
+                      </View>
                     </View>
 
                     {badge && badgeTone && (
@@ -549,9 +624,6 @@ export function ImportTourScreen() {
   );
 }
 
-const WARNING_BORDER = '#F59E0B';
-const WARNING_BG = '#FFFBEB';
-
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
   topBar: {
@@ -591,9 +663,19 @@ const createStyles = (colors: ThemeColors) =>
     gap: spacing.xs,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: WARNING_BORDER,
+    borderColor: withAlpha(colors.warning, 0.55),
     borderRadius: radius.md,
-    backgroundColor: WARNING_BG,
+    backgroundColor: withAlpha(colors.warning, 0.12),
+  },
+  allClearBanner: {
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.success, 0.5),
+    borderRadius: radius.md,
+    backgroundColor: withAlpha(colors.success, 0.12),
+  },
+  attentionTitle: {
+    fontWeight: '700',
   },
   yearCard: {
     flexDirection: 'row',
@@ -633,12 +715,14 @@ const createStyles = (colors: ThemeColors) =>
     backgroundColor: colors.surface,
   },
   stopNeedsReview: {
-    borderColor: WARNING_BORDER,
-    backgroundColor: WARNING_BG,
+    borderColor: withAlpha(colors.warning, 0.55),
+    borderLeftWidth: 3,
+    backgroundColor: withAlpha(colors.warning, 0.1),
   },
   stopUnresolved: {
-    borderColor: colors.danger,
-    backgroundColor: '#FEF2F2',
+    borderColor: withAlpha(colors.danger, 0.55),
+    borderLeftWidth: 3,
+    backgroundColor: withAlpha(colors.danger, 0.1),
   },
   badge: {
     gap: 2,
@@ -649,24 +733,64 @@ const createStyles = (colors: ThemeColors) =>
     fontWeight: '700',
   },
   badgeOk: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: withAlpha(colors.success, 0.14),
   },
   badgeWarn: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: withAlpha(colors.warning, 0.16),
   },
   badgeBad: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: withAlpha(colors.danger, 0.16),
   },
   badgeBusy: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceMuted,
   },
   badgeIdle: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceMuted,
   },
   stopHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  stopHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  matchedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  matchedRowPressed: {
+    opacity: 0.6,
+  },
+  matchedCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withAlpha(colors.success, 0.16),
+  },
+  matchedCheckMark: {
+    color: colors.success,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  matchedInfo: {
+    flex: 1,
+    gap: 1,
+  },
+  matchedVenue: {
+    fontWeight: '600',
   },
   startOver: {
     textAlign: 'center',
