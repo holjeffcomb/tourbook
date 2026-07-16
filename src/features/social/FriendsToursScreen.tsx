@@ -99,10 +99,12 @@ export function FriendsToursScreen() {
   const scene = useMemo<MapScene>(
     () => ({
       key: 'friends-tours',
+      frameKey: `friends-tours-${upcomingIds.join('|')}`,
+      focusMode: 'trimmed',
       routes,
       contentInsets: { top: insets.top + 56, left: spacing.md, right: spacing.md },
     }),
-    [routes, insets.top],
+    [routes, upcomingIds, insets.top],
   );
 
   const sheetHeader = (

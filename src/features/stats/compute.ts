@@ -101,12 +101,22 @@ function showOffLabel(showCount: number, offDayCount: number): string {
   return `${showCount}:${offDayCount} (${ratio} shows per off day)`;
 }
 
+/**
+ * The country for a stop: prefer the one the geocoder saved on the venue, and
+ * fall back to parsing it out of the free-text city (older data / city-only
+ * stops that predate stored countries).
+ */
+function stopCountry(stop: TourStop): string | null {
+  const stored = stop.location?.country?.trim();
+  if (stored) return stored;
+  const city = stop.location?.city;
+  return city ? inferCountryFromCity(city) : null;
+}
+
 function uniqueCountriesFromStops(stops: TourStop[]): string[] {
   const countries = new Set<string>();
   for (const stop of stops) {
-    const city = stop.location?.city;
-    if (!city) continue;
-    const country = inferCountryFromCity(city);
+    const country = stopCountry(stop);
     if (country) countries.add(country);
   }
   return [...countries].sort();
@@ -127,6 +137,15 @@ export function computeTourStats(stops: TourStop[]): TourStats {
   const showCount = stops.filter((s) => s.kind === 'show').length;
   const offDayCount = stops.filter((s) => s.kind === 'off').length;
   const located = locatedStops(stops);
+  const calendarDays = calendarSpanDays(stops);
+
+  // Days on tour without a show — derived from the date span so gaps count even
+  // when the user hasn't entered explicit off days.
+  const showDates = new Set<string>();
+  for (const stop of stops) {
+    if (stop.kind === 'show' && ISO_DATE.test(stop.date)) showDates.add(stop.date);
+  }
+  const offDays = Math.max(0, calendarDays - showDates.size);
   const segments = computeDriveSegments(stops);
   const totalMiles = segments.reduce((sum, s) => sum + s.miles, 0);
 
@@ -143,9 +162,10 @@ export function computeTourStats(stops: TourStop[]): TourStats {
   return {
     showCount,
     offDayCount,
+    offDays,
     totalStops: stops.length,
     showOffLabel: showOffLabel(showCount, offDayCount),
-    calendarDays: calendarSpanDays(stops),
+    calendarDays,
     uniqueCities: cities.size,
     uniqueVenues: venues.size,
     locatedStops: located.length,
@@ -169,6 +189,8 @@ export type VisitedPlace = {
   city: string;
   /** Distinct tours that stopped here (ids match the stopsByTourId keys). */
   tourIds: string[];
+  /** Earliest visit date (ISO YYYY-MM-DD), or null if none had a date. */
+  firstVisit: string | null;
   /** Most recent visit date (ISO YYYY-MM-DD), or null if none had a date. */
   lastVisit: string | null;
   /** Whether any visit here was to a booked venue (vs. a city-only stop). */
@@ -205,6 +227,7 @@ export function computeVisitedPlaces(stopsByTourId: Record<string, TourStop[]>):
         }
         if (!existing.city && stop.location?.city) existing.city = stop.location.city;
         if (booked) existing.booked = true;
+        if (date && (!existing.firstVisit || date < existing.firstVisit)) existing.firstVisit = date;
         if (date && (!existing.lastVisit || date > existing.lastVisit)) existing.lastVisit = date;
         continue;
       }
@@ -217,6 +240,7 @@ export function computeVisitedPlaces(stopsByTourId: Record<string, TourStop[]>):
         label: stop.location?.name ?? '',
         city: stop.location?.city ?? '',
         tourIds: new Set([tourId]),
+        firstVisit: date,
         lastVisit: date,
         booked,
       });
@@ -579,11 +603,7 @@ export function computeOverlap(input: OverlapInput): OverlapStats {
 
   const venuesA = new Set(flatA.map((x) => venueKey(x.stop)).filter(Boolean) as string[]);
   const citiesA = new Set(flatA.map((x) => cityKey(x.stop)).filter(Boolean) as string[]);
-  const countriesA = new Set(
-    flatA
-      .map((x) => (x.stop.location?.city ? inferCountryFromCity(x.stop.location.city) : null))
-      .filter(Boolean) as string[],
-  );
+  const countriesA = new Set(flatA.map((x) => stopCountry(x.stop)).filter(Boolean) as string[]);
 
   const mutualVenues = new Set<string>();
   const mutualCities = new Set<string>();
@@ -602,7 +622,7 @@ export function computeOverlap(input: OverlapInput): OverlapStats {
       mutualCities.add(c);
       cityLabels.set(c, stop.location?.city ?? c);
     }
-    const country = stop.location?.city ? inferCountryFromCity(stop.location.city) : null;
+    const country = stopCountry(stop);
     if (country && countriesA.has(country)) mutualCountries.add(country);
   }
 

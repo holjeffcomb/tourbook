@@ -8,7 +8,13 @@ export type DriveSegment = {
 
 export type TourStats = {
   showCount: number;
+  /** Stops explicitly marked as off days. */
   offDayCount: number;
+  /**
+   * Rest/travel days across the tour: calendar span minus days that had a show.
+   * Captures gaps even when the user hasn't entered explicit off days.
+   */
+  offDays: number;
   totalStops: number;
   showOffLabel: string;
   calendarDays: number;

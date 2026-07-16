@@ -1,10 +1,12 @@
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { type BottomSheetHandle } from '@/components/BottomSheet';
 import { Button } from '@/components/Button';
+import { Icon } from '@/components/Icon';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
 import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
@@ -31,49 +33,55 @@ const STOP_FOCUS_ZOOM = 11;
 
 function StopRow({
   stop,
+  showNumber,
+  selected,
   onPress,
-  onVenuePress,
+  onLayout,
 }: {
   stop: TourStop;
+  showNumber: number | null;
+  selected: boolean;
   onPress: () => void;
-  onVenuePress?: () => void;
+  onLayout?: (y: number) => void;
 }) {
   const styles = useThemedStyles(createStyles);
   const isOff = stop.kind === 'off';
+  const booked = stop.location?.booked ?? false;
+  const name = isOff
+    ? stop.label || 'Off day'
+    : stop.location?.name || (booked ? 'Venue' : 'Venue TBD');
+  const city = stop.location?.city ?? '';
+  const meta = [formatShowDate(stop.date), city].filter(Boolean).join(' · ');
+
   return (
     <Pressable
       onPress={onPress}
+      onLayout={(e) => onLayout?.(e.nativeEvent.layout.y)}
       accessibilityRole="button"
-      style={({ pressed }) => [styles.row, isOff && styles.offRow, pressed && styles.rowPressed]}
+      accessibilityLabel={`${name}, ${formatShowDate(stop.date)}`}
+      style={({ pressed }) => [
+        styles.row,
+        selected && styles.rowSelected,
+        pressed && styles.rowPressed,
+      ]}
     >
-      <View style={styles.rowHeader}>
-        <Text variant="body" style={styles.rowDate}>
-          {formatShowDate(stop.date)}
+      <View style={[styles.rowBadge, isOff && styles.rowBadgeOff, selected && styles.rowBadgeSelected]}>
+        <Text style={[styles.rowBadgeText, isOff && styles.rowBadgeTextOff]}>
+          {isOff ? '—' : (showNumber ?? '•')}
         </Text>
-        {isOff && (
-          <Text variant="caption" color="textMuted">
-            Off day
-          </Text>
-        )}
       </View>
-      {isOff ? (
-        <Text color="textMuted">
-          {[stop.label, stop.location?.city].filter(Boolean).join(' · ') || 'Rest / travel day'}
+      <View style={styles.rowInfo}>
+        <Text variant="body" numberOfLines={1} style={styles.rowName}>
+          {name}
         </Text>
-      ) : (
-        <View style={styles.stopLocation}>
-          {stop.venueId && onVenuePress ? (
-            <Text color="primary" onPress={onVenuePress}>
-              {stop.location?.name}
-              {stop.location?.city ? ` · ${stop.location.city}` : ''}
-            </Text>
-          ) : (
-            <Text color="textMuted">
-              {stop.location?.name}
-              {stop.location?.city ? ` · ${stop.location.city}` : ''}
-            </Text>
-          )}
-        </View>
+        <Text variant="caption" color="textMuted" numberOfLines={1}>
+          {meta || 'Rest / travel day'}
+        </Text>
+      </View>
+      {!isOff && !booked && (
+        <Text variant="caption" color="textMuted" style={styles.rowTbd}>
+          TBD
+        </Text>
       )}
     </Pressable>
   );
@@ -222,6 +230,81 @@ function VenueStopCard({
   );
 }
 
+/**
+ * A soft vertical fade (transparent → `color`) faked with stacked opacity bands,
+ * so the hero flyer melts into the card without a native gradient dependency.
+ */
+function VerticalFade({ color }: { color: string }) {
+  const styles = useThemedStyles(createStyles);
+  const bands = 14;
+  return (
+    <View pointerEvents="none" style={styles.heroFade}>
+      {Array.from({ length: bands }).map((_, i) => (
+        <View
+          key={i}
+          style={{ flex: 1, backgroundColor: color, opacity: Math.pow((i + 1) / bands, 1.7) }}
+        />
+      ))}
+    </View>
+  );
+}
+
+/**
+ * Hero card for the tour: the flyer fills the top, edge-to-edge, and fades into
+ * the card surface, with the act / title / dates in the settled area below.
+ * `flyerUri` is a placeholder hook until tours carry an uploaded flyer; the fade
+ * colour could later be derived from the flyer's dominant colour.
+ */
+function TourHeroCard({
+  actName,
+  title,
+  range,
+  flyerUri,
+}: {
+  actName: string;
+  title: string | null;
+  range: string | null;
+  flyerUri?: string | null;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const colors = useColors();
+  const headline = title?.trim() || actName;
+  const showKicker = !!title?.trim();
+
+  return (
+    <View style={styles.heroCard}>
+      <View style={styles.heroImage}>
+        {flyerUri ? (
+          <Image source={{ uri: flyerUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : (
+          <View style={styles.heroPlaceholder}>
+            <Icon name="image-outline" size={28} color="textMuted" />
+            <Text variant="caption" color="textMuted" style={styles.heroPlaceholderText}>
+              Tour flyer
+            </Text>
+          </View>
+        )}
+        <VerticalFade color={colors.surfaceElevated} />
+      </View>
+      <View style={styles.heroBody}>
+        {showKicker && (
+          <Text style={styles.heroKicker} numberOfLines={1}>
+            {actName}
+          </Text>
+        )}
+        <Text variant="title" numberOfLines={2}>
+          {headline}
+        </Text>
+        {!!range && (
+          <Text variant="caption" color="textMuted">
+            {range}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export function TourDetailScreen() {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
@@ -244,6 +327,21 @@ export function TourDetailScreen() {
 
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const onSelectStop = useCallback((stopId: string) => setSelectedStopId(stopId), []);
+  const onPressMapBackground = useCallback(() => setSelectedStopId(null), []);
+  const sheetControlRef = useRef<BottomSheetHandle>(null);
+
+  // Keep the itinerary list tracking the active stop: as the prev/next arrows or
+  // map taps move the selection, scroll that row into view inside the sheet.
+  const scrollRef = useRef<ScrollView>(null);
+  const rowYRef = useRef<Map<string, number>>(new Map());
+  const itineraryYRef = useRef(0);
+
+  // Selecting from the itinerary list also drops the sheet so the highlighted
+  // map point and its detail card are visible.
+  const onSelectFromList = useCallback((stopId: string) => {
+    setSelectedStopId(stopId);
+    sheetControlRef.current?.snapTo(0);
+  }, []);
 
   // Show numbers are 1-based across booked/TBD stops (off days don't count),
   // matching the numbers drawn on the map markers.
@@ -262,6 +360,13 @@ export function TourDetailScreen() {
   const selectedStop = selectedStopId
     ? (stops.find((s) => s.id === selectedStopId) ?? null)
     : null;
+
+  useEffect(() => {
+    if (!selectedStopId) return;
+    const y = rowYRef.current.get(selectedStopId);
+    if (y == null) return;
+    scrollRef.current?.scrollTo({ y: Math.max(0, itineraryYRef.current + y - 16), animated: true });
+  }, [selectedStopId]);
 
   const located = useMemo<LocatedStop[]>(
     () =>
@@ -325,10 +430,15 @@ export function TourDetailScreen() {
       lines: mapContent.lines,
       focus: selectedCoord ? [selectedCoord] : mapContent.focus,
       singleZoom: selectedCoord ? STOP_FOCUS_ZOOM : 9,
+      // A slow, whimsical glide between shows: `flyTo` arcs the camera out and
+      // back in, so hopping stop-to-stop feels like drifting across the map.
+      focusDurationMs: selectedCoord ? 2400 : 1100,
+      focusAnimationMode: selectedCoord ? 'flyTo' : 'easeTo',
       contentInsets,
       onSelectStop,
+      onPressMapBackground,
     };
-  }, [mapContent, located, id, insets.top, onSelectStop, selectedStopId]);
+  }, [mapContent, located, id, insets.top, onSelectStop, onPressMapBackground, selectedStopId]);
 
   const confirmLeave = () => {
     Alert.alert('Leave tour', 'You can rejoin later from the add-tour search.', [
@@ -424,6 +534,7 @@ export function TourDetailScreen() {
       initialSnapIndex={1}
       sheetHeader={tour ? sheetHeader : undefined}
       floating={floating}
+      sheetControlRef={sheetControlRef}
     >
       {tourQuery.isLoading ? (
         <View style={styles.center}>
@@ -436,9 +547,12 @@ export function TourDetailScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]}
           keyboardShouldPersistTaps="handled"
         >
+          <TourHeroCard actName={tour.act.name} title={tour.title} range={range} />
+
           {isCreator && (
             <View style={styles.creatorActions}>
               <Text
@@ -526,26 +640,20 @@ export function TourDetailScreen() {
               </Text>
             </View>
           ) : (
-            <View style={styles.itinerary}>
+            <View
+              style={styles.itinerary}
+              onLayout={(e) => {
+                itineraryYRef.current = e.nativeEvent.layout.y;
+              }}
+            >
               {stops.map((item) => (
                 <StopRow
                   key={item.id}
                   stop={item}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/tours/[id]/shows/[showId]',
-                      params: { id, showId: item.id },
-                    })
-                  }
-                  onVenuePress={
-                    item.venueId
-                      ? () =>
-                          router.push({
-                            pathname: '/venues/[id]',
-                            params: { id: item.venueId as string },
-                          })
-                      : undefined
-                  }
+                  showNumber={showNumberById.get(item.id) ?? null}
+                  selected={item.id === selectedStopId}
+                  onPress={() => onSelectFromList(item.id)}
+                  onLayout={(y) => rowYRef.current.set(item.id, y)}
                 />
               ))}
             </View>
@@ -577,6 +685,54 @@ const createStyles = (colors: ThemeColors) =>
     sheetHeader: {
       paddingBottom: spacing.sm,
       gap: 2,
+    },
+    heroCard: {
+      overflow: 'hidden',
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceElevated,
+    },
+    heroImage: {
+      height: 190,
+      width: '100%',
+      backgroundColor: colors.surfaceMuted,
+    },
+    heroPlaceholder: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+      backgroundColor: colors.primaryMuted,
+    },
+    heroPlaceholderText: {
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+      fontWeight: '600',
+    },
+    heroFade: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 120,
+    },
+    heroBody: {
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xs,
+      paddingBottom: spacing.md,
+      gap: 2,
+    },
+    heroKicker: {
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 1.3,
+      textTransform: 'uppercase',
+      color: colors.primary,
     },
     venueCard: {
       position: 'absolute',
@@ -664,7 +820,7 @@ const createStyles = (colors: ThemeColors) =>
       paddingTop: spacing.xs,
     },
     itinerary: {
-      gap: spacing.sm,
+      gap: spacing.xs,
     },
     center: {
       flex: 1,
@@ -683,31 +839,57 @@ const createStyles = (colors: ThemeColors) =>
       textAlign: 'center',
     },
     row: {
-      gap: spacing.xs,
-      padding: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radius.md,
       backgroundColor: colors.surface,
     },
-    offRow: {
-      backgroundColor: colors.background,
-      borderStyle: 'dashed',
+    rowSelected: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primaryMuted,
     },
     rowPressed: {
       opacity: 0.7,
     },
-    rowHeader: {
-      flexDirection: 'row',
+    rowBadge: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.sm,
+      justifyContent: 'center',
+      backgroundColor: colors.primary,
     },
-    rowDate: {
+    rowBadgeOff: {
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    rowBadgeSelected: {
+      backgroundColor: colors.primary,
+    },
+    rowBadgeText: {
+      color: colors.onPrimary,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    rowBadgeTextOff: {
+      color: colors.textMuted,
+    },
+    rowInfo: {
+      flex: 1,
+      gap: 1,
+    },
+    rowName: {
       fontWeight: '600',
     },
-    stopLocation: {
-      gap: spacing.xs,
+    rowTbd: {
+      fontWeight: '700',
+      letterSpacing: 0.5,
     },
     actions: {
       flexDirection: 'row',

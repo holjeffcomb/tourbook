@@ -1,5 +1,14 @@
 import { BlurView } from 'expo-blur';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { BottomSheet, type BottomSheetHandle } from '@/components/BottomSheet';
@@ -25,6 +34,8 @@ type Props = {
   sheetHeader?: ReactNode;
   /** Floating chrome above the map/sheet (e.g. a tapped-marker detail card). */
   floating?: ReactNode;
+  /** Imperative access to the bottom sheet (e.g. to snap it down on selection). */
+  sheetControlRef?: Ref<BottomSheetHandle>;
   /** Scrollable sheet body. */
   children: ReactNode;
 };
@@ -50,6 +61,7 @@ export function MapScreenScaffold({
   initialSnapIndex = DEFAULT_INITIAL,
   sheetHeader,
   floating,
+  sheetControlRef,
   children,
 }: Props) {
   const styles = useThemedStyles(createStyles);
@@ -58,6 +70,10 @@ export function MapScreenScaffold({
   const [reserved, setReserved] = useState(0);
   const sheetRef = useRef<BottomSheetHandle>(null);
   const progress = useSharedValue(0);
+
+  useImperativeHandle(sheetControlRef, () => ({
+    snapTo: (index: number) => sheetRef.current?.snapTo(index),
+  }));
 
   const snapPoints = useMemo(() => {
     if (height === 0) return [];

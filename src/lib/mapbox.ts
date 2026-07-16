@@ -1,5 +1,5 @@
 import { env } from '@/lib/env';
-import { cityMatches, citySearchTerms } from '@/lib/cityMatch';
+import { cityMatches, citySearchTerms, normalizePlace } from '@/lib/cityMatch';
 
 // Mapbox Search Box API — the current recommended flow for POI/venue search.
 // It's session-based: `suggest` powers the dropdown, `retrieve` returns the
@@ -34,6 +34,8 @@ export type GeocodeResult = {
   name: string;
   city: string;
   mapboxPlace: string | null;
+  /** Country name from the geocoder's context, e.g. "Germany". */
+  country: string | null;
   address: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -58,15 +60,60 @@ type SuggestResponse = {
   }[];
 };
 
-/** Build Mapbox query strings for a venue, trying city with/without accents. */
+// Mapbox biases forward/suggest results toward the caller's IP location when no
+// `proximity` is supplied — which surfaced same-name venues in the user's home
+// city (e.g. the Las Vegas "Fillmore" for a Denver show) and produced false
+// "needs review" mismatches. We instead resolve the *requested* city's centre and
+// bias toward that, so results land in the right place regardless of where the
+// user physically is. Cached per city (null = no hit / not found).
+const cityCenterCache = new Map<string, [number, number] | null>();
+
+async function cityCenter(city?: string): Promise<[number, number] | null> {
+  const key = (city ?? '').trim().toLowerCase();
+  if (!key || !env.mapboxToken) return null;
+  if (cityCenterCache.has(key)) return cityCenterCache.get(key) ?? null;
+
+  let center: [number, number] | null = null;
+  try {
+    const params = new URLSearchParams({
+      q: city!.trim(),
+      access_token: env.mapboxToken,
+      limit: '1',
+      types: 'place,locality,region,district',
+    });
+    const res = await fetch(`${BASE}/forward?${params.toString()}`);
+    if (res.ok) {
+      const json = (await res.json()) as ForwardResponse;
+      const coords = json.features?.[0]?.geometry?.coordinates;
+      if (coords) center = [coords[0], coords[1]];
+    }
+  } catch {
+    // Best-effort — fall back to no proximity bias.
+  }
+  cityCenterCache.set(key, center);
+  return center;
+}
+
+/** `proximity=lng,lat` for the city, or null. Appended to bias results toward it. */
+function proximityParam(center: [number, number] | null): string | null {
+  return center ? `${center[0]},${center[1]}` : null;
+}
+
+/**
+ * Build Mapbox query strings for a venue, trying city with/without accents.
+ * City-qualified variants come first (most specific) so a loose chain match in
+ * the wrong city can't pre-empt the correct one; the bare venue name is a last
+ * resort.
+ */
 function venueQueryVariants(term: string, city?: string): string[] {
   const queries = new Set<string>();
-  queries.add(term);
 
   for (const cityTerm of citySearchTerms(city ?? '')) {
     queries.add(`${term}, ${cityTerm}`);
     queries.add(`${term} ${cityTerm}`);
   }
+
+  queries.add(term);
 
   return [...queries];
 }
@@ -83,6 +130,7 @@ export async function suggestPlaces(
   // "Montréal, Canada" → try both "Montréal" and "Montreal" as city bias.
   // Plain venue-only query is always included as a fallback.
   const queries = venueQueryVariants(term, city);
+  const proximity = proximityParam(await cityCenter(city));
 
   const unique = new Map<string, PlaceSuggestion>();
 
@@ -95,6 +143,7 @@ export async function suggestPlaces(
         limit: '8',
         types: 'poi,address,place',
       });
+      if (proximity) params.set('proximity', proximity);
       const res = await fetch(`${BASE}/suggest?${params.toString()}`);
       if (!res.ok) return;
 
@@ -131,7 +180,8 @@ type ForwardFeature = {
     context?: {
       place?: { name?: string };
       locality?: { name?: string };
-      region?: { name?: string };
+      region?: { name?: string; region_code?: string };
+      country?: { name?: string; country_code?: string };
     };
   };
 };
@@ -147,29 +197,69 @@ function mapboxPlaceLabel(feature: ForwardFeature): string {
   return ctx.place?.name ?? ctx.locality?.name ?? '';
 }
 
-function pickInCity(
-  features: ForwardFeature[],
-  requestedCity: string,
-): { feature: ForwardFeature; confidence: VenueMatchConfidence } | null {
-  if (features.length === 0) return null;
+/** The requested state/region token, if the city string includes one ("Orlando, FL" → "fl"). */
+function requestedRegion(requestedCity: string): string {
+  const parts = requestedCity.split(',');
+  return parts.length > 1 ? normalizePlace(parts.slice(1).join(' ')) : '';
+}
 
+/** Whether a feature's region agrees with the requested state (name or code). */
+function regionMatches(requestedCity: string, feature: ForwardFeature): boolean {
+  const req = requestedRegion(requestedCity);
+  if (!req) return true; // No state given — nothing to disqualify on.
+  const region = feature.properties?.context?.region;
+  const candidates = [region?.name, region?.region_code]
+    .filter((v): v is string => !!v)
+    .map(normalizePlace);
+  return candidates.some((c) => c === req);
+}
+
+/** First feature that actually sits in the requested city, if any. */
+function findCityMatch(features: ForwardFeature[], requestedCity: string): ForwardFeature | null {
   for (const feature of features) {
     const place = mapboxPlaceLabel(feature);
     const full = feature.properties?.full_address ?? feature.properties?.address ?? '';
     const region = feature.properties?.context?.region?.name ?? '';
-    if (cityMatches(requestedCity, place, full, region)) {
-      return { feature, confidence: 'confirmed' };
-    }
+    if (cityMatches(requestedCity, place, full, region)) return feature;
   }
+  return null;
+}
 
-  // Prefer a POI/address that at least has a city label over a bare region hit.
-  const topWithPlace =
-    features.find((f) => !!mapboxPlaceLabel(f)) ?? features[0];
-  const topPlace = mapboxPlaceLabel(topWithPlace);
-  if (topPlace) {
-    return { feature: topWithPlace, confidence: 'needs_review' };
-  }
-  return { feature: topWithPlace, confidence: 'unresolved' };
+/**
+ * A "close but unconfirmed" candidate to surface for review. We only suggest one
+ * when it plausibly refers to the same place — i.e. it's in the requested state
+ * (when one was given). This avoids the confusing "Mapbox suggested Wheatland,
+ * CA" for an Orlando, FL show.
+ */
+function pickFallback(
+  features: ForwardFeature[],
+  requestedCity: string,
+): ForwardFeature | null {
+  const candidate = features.find((f) => !!mapboxPlaceLabel(f));
+  if (!candidate) return null;
+  if (!regionMatches(requestedCity, candidate)) return null;
+  return candidate;
+}
+
+function buildGeocodeResult(
+  feature: ForwardFeature,
+  confidence: VenueMatchConfidence,
+  requestedCity: string,
+  venueName: string,
+): GeocodeResult {
+  const [longitude, latitude] = feature.geometry.coordinates;
+  const props = feature.properties ?? {};
+  const mapboxPlace = mapboxPlaceLabel(feature);
+  return {
+    name: props.name || venueName || requestedCity,
+    city: requestedCity || mapboxPlace,
+    mapboxPlace: mapboxPlace || null,
+    country: feature.properties?.context?.country?.name ?? null,
+    address: props.full_address ?? props.address ?? null,
+    latitude: confidence === 'confirmed' ? latitude : null,
+    longitude: confidence === 'confirmed' ? longitude : null,
+    confidence,
+  };
 }
 
 /** Forward-geocode search for the place picker when suggest (typeahead) returns nothing. */
@@ -181,6 +271,7 @@ export async function forwardSearchPlaces(
   if (!env.mapboxToken || term.length < 2) return [];
 
   const queries = venueQueryVariants(term, city);
+  const proximity = proximityParam(await cityCenter(city));
   const unique = new Map<string, PlaceSuggestion>();
 
   for (const q of queries) {
@@ -190,6 +281,7 @@ export async function forwardSearchPlaces(
       limit: '5',
       types: 'poi,address,place',
     });
+    if (proximity) params.set('proximity', proximity);
     const res = await fetch(`${BASE}/forward?${params.toString()}`);
     if (!res.ok) continue;
 
@@ -259,6 +351,14 @@ export async function geocodeVenue(
 
   if (!env.mapboxToken || queries.length === 0) return null;
 
+  // Bias toward the requested city's centre so we don't get the same-name venue
+  // in the user's home city (the Las Vegas vs. Denver "Fillmore" problem).
+  const proximity = proximityParam(await cityCenter(requestedCity));
+
+  // Search every query for a real city match before settling — a loose match in
+  // the wrong city (e.g. a chain venue) must not short-circuit the correct one.
+  let fallback: ForwardFeature | null = null;
+
   for (const query of queries) {
     const params = new URLSearchParams({
       q: query,
@@ -266,33 +366,29 @@ export async function geocodeVenue(
       limit: '5',
       types: 'poi,address,place',
     });
+    if (proximity) params.set('proximity', proximity);
     const res = await fetch(`${BASE}/forward?${params.toString()}`);
     if (!res.ok) continue;
 
     const json = (await res.json()) as ForwardResponse;
-    const picked = pickInCity(json.features ?? [], requestedCity);
-    if (!picked) continue;
+    const features = json.features ?? [];
+    if (features.length === 0) continue;
 
-    const [longitude, latitude] = picked.feature.geometry.coordinates;
-    const props = picked.feature.properties ?? {};
-    const mapboxPlace = mapboxPlaceLabel(picked.feature);
-    const fullAddress = props.full_address ?? props.address ?? null;
+    const match = findCityMatch(features, requestedCity);
+    if (match) return buildGeocodeResult(match, 'confirmed', requestedCity, venueName);
 
-    return {
-      name: props.name || venueName || requestedCity,
-      city: requestedCity || mapboxPlace,
-      mapboxPlace: mapboxPlace || null,
-      address: fullAddress,
-      latitude: picked.confidence === 'confirmed' ? latitude : null,
-      longitude: picked.confidence === 'confirmed' ? longitude : null,
-      confidence: picked.confidence,
-    };
+    // Remember the first plausible (same-state) candidate, but keep searching
+    // the remaining, more-specific queries for an actual city match.
+    if (!fallback) fallback = pickFallback(features, requestedCity);
   }
+
+  if (fallback) return buildGeocodeResult(fallback, 'needs_review', requestedCity, venueName);
 
   return {
     name: venueName || requestedCity,
     city: requestedCity,
     mapboxPlace: null,
+    country: null,
     address: street || null,
     latitude: null,
     longitude: null,
@@ -315,6 +411,32 @@ type RetrieveResponse = {
     };
   }[];
 };
+
+/**
+ * Reverse-geocode a coordinate to its country name. Used to backfill
+ * `venues.country` for stops whose city string is bare ("Berlin") and never
+ * carried a country at insert time.
+ */
+export async function reverseGeocodeCountry(
+  longitude: number,
+  latitude: number,
+): Promise<string | null> {
+  if (!env.mapboxToken) return null;
+  const params = new URLSearchParams({
+    access_token: env.mapboxToken,
+    types: 'country',
+    limit: '1',
+  });
+  const res = await fetch(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?${params}`,
+  );
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    features?: { text?: string; place_name?: string }[];
+  };
+  const feature = json.features?.[0];
+  return feature?.text?.trim() || feature?.place_name?.trim() || null;
+}
 
 export async function retrievePlace(
   mapboxId: string,

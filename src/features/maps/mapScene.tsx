@@ -44,6 +44,9 @@ export type MapPlace = {
   label?: string;
   city?: string;
   tourCount?: number;
+  /** Act / tour names that stopped here (for the inspect card). */
+  tourNames?: string[];
+  firstVisit?: string | null;
   lastVisit?: string | null;
 };
 
@@ -85,12 +88,18 @@ export type MapScene = {
   key: string;
   /**
    * Token controlling when the camera re-frames *within* a scene. The camera
-   * only re-aims when this value changes (defaults to `key`), so changing scene
-   * data that doesn't change the frame key — e.g. toggling the Lifetime
-   * year/routes/places — leaves the user's current pan/zoom untouched. Set it to
-   * something that varies (e.g. a selected stop id) to intentionally re-frame.
+   * only re-aims when this value changes (defaults to `key`). Leave it stable
+   * for incidental data changes (e.g. selecting a place); vary it for
+   * intentional re-frames (year filter, selected stop, route set).
    */
   frameKey?: string;
+  /**
+   * How to derive the camera frame from scene coordinates.
+   * - `bounds` (default): fit every point — right for a single tour.
+   * - `trimmed`: center on all points, but size zoom from ~80% so Lifetime /
+   *   tour lists don't zoom out to the whole world for edge outliers.
+   */
+  focusMode?: 'bounds' | 'trimmed';
   variant?: MapStyleVariant;
   /** Clustered visited places (Lifetime). */
   places?: MapPlace[];
@@ -106,14 +115,32 @@ export type MapScene = {
   focus?: Coord[];
   /** Zoom used when there is a single focus point. */
   singleZoom?: number;
+  /** Camera animation duration (ms) for in-scene re-frames. Defaults to 700. */
+  focusDurationMs?: number;
+  /**
+   * Camera easing for in-scene re-frames. `flyTo` arcs out and back in for a
+   * cinematic glide; defaults to `easeTo`.
+   */
+  focusAnimationMode?: 'flyTo' | 'easeTo' | 'linearTo' | 'moveTo';
   /** Keep content clear of floating chrome (header height, sheet height). */
   contentInsets?: MapContentInsets;
   /** Allow the user to pan/zoom (default true). */
   interactive?: boolean;
-  /** Fired when a clustered place marker is tapped (Lifetime). */
-  onSelectPlace?: (id: string) => void;
+  /**
+   * Currently inspected Lifetime place (controlled). When set, the stage draws
+   * a selection ring; the owning screen renders the detail card in its overlay
+   * so it sits above the map chrome.
+   */
+  selectedPlaceId?: string | null;
+  /**
+   * Fired when a place marker is tapped, or with `null` when a cluster is
+   * expanded / selection should clear.
+   */
+  onSelectPlace?: (id: string | null) => void;
   /** Fired when a numbered tour stop marker is tapped (tour detail). */
   onSelectStop?: (id: string) => void;
+  /** Fired when the user taps empty map (not a marker) — clear floating panes. */
+  onPressMapBackground?: () => void;
   /**
    * Bottom chrome (px) the map + overlay must not cover — e.g. the tab bar on
    * top-level tab screens — so it stays visible and tappable behind them.

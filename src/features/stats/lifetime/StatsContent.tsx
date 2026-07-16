@@ -5,7 +5,6 @@ import { Text } from '@/components/Text';
 import type { HighlightGroup, PassportHighlight, PassportStats } from '@/features/stats/types';
 import {
   EARTH_CIRCUMFERENCE_MILES,
-  formatPercent,
   formatTripFraction,
   MOON_DISTANCE_MILES,
   SUN_DISTANCE_MILES,
@@ -28,34 +27,24 @@ const GROUP_TITLE: Record<HighlightGroup, string> = {
 };
 
 /**
- * The Lifetime stats body — a stack of Flighty-style cards. A distance hero
- * frames total mileage against cosmic yardsticks (Earth / Moon / Sun), a compact
- * overview grid holds the headline counts, and the fun facts are grouped into
- * labelled cards. Uppercase, letter-spaced kickers set the typographic theme.
- * All numbers roll when the year/filter changes.
+ * Lifetime stats body. The first card is a condensed Flighty-style OVERVIEW
+ * sized for the low resting sheet snap (miles + cosmic yardsticks + headline
+ * counts). Dragging the sheet up reveals the grouped fun-fact cards below.
  */
 export function StatsContent({ stats, bottomInset, onPressPerson }: Props) {
   const styles = useThemedStyles(createStyles);
 
-  const distances = [
-    { label: 'Around Earth', value: formatTripFraction(stats.totalMiles, EARTH_CIRCUMFERENCE_MILES) },
-    { label: 'To the Moon', value: formatTripFraction(stats.totalMiles, MOON_DISTANCE_MILES) },
-    { label: 'To the Sun', value: formatTripFraction(stats.totalMiles, SUN_DISTANCE_MILES) },
-  ];
+  const earth = formatTripFraction(stats.totalMiles, EARTH_CIRCUMFERENCE_MILES);
+  const moon = formatTripFraction(stats.totalMiles, MOON_DISTANCE_MILES);
+  const sun = formatTripFraction(stats.totalMiles, SUN_DISTANCE_MILES);
 
-  const cells: { label: string; value: number; note?: string }[] = [
+  const cells: { label: string; value: number }[] = [
     { label: 'Tours', value: stats.tourCount },
     { label: 'Shows', value: stats.totalShows },
+    { label: 'Countries', value: stats.uniqueCountries },
     { label: 'Days on road', value: stats.daysOnRoad },
     { label: 'Cities', value: stats.uniqueCities },
-    { label: 'Venues', value: stats.uniqueVenues },
-    {
-      label: 'Countries',
-      value: stats.uniqueCountries,
-      note: stats.uniqueCountries > 0 ? `${formatPercent(stats.countryPercent)} of world` : undefined,
-    },
   ];
-  if (stats.uniqueActs > 1) cells.push({ label: 'Artists', value: stats.uniqueActs });
 
   const groups = GROUP_ORDER.map((group) => ({
     group,
@@ -69,49 +58,34 @@ export function StatsContent({ stats, bottomInset, onPressPerson }: Props) {
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xl }]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Distance hero */}
-      <View style={styles.card}>
-        <Text style={[styles.kicker, styles.center]}>Miles traveled</Text>
-        <AnimatedCount
-          value={stats.totalMiles}
-          suffix=" mi"
-          variant="display"
-          style={styles.heroValue}
-        />
-        <View style={styles.divider} />
-        <View style={styles.compareRow}>
-          {distances.map((d) => (
-            <View key={d.label} style={styles.compareCell}>
-              <Text style={styles.compareValue}>{d.value}</Text>
-              <Text style={[styles.kicker, styles.center]} numberOfLines={2}>
-                {d.label}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Overview grid */}
-      <View style={styles.card}>
+      <View style={styles.overviewCard}>
         <Text style={styles.kicker}>Overview</Text>
+
+        <View style={styles.distanceBlock}>
+          <Text style={styles.statLabel}>Distance</Text>
+          <AnimatedCount
+            value={stats.totalMiles}
+            suffix=" mi"
+            variant="title"
+            style={styles.milesValue}
+          />
+          <Text style={styles.cosmicLine} numberOfLines={1}>
+            {earth} Earth · {moon} Moon · {sun} Sun
+          </Text>
+        </View>
+
+        <View style={styles.divider} />
+
         <View style={styles.grid}>
           {cells.map((cell) => (
             <View key={cell.label} style={styles.cell}>
+              <Text style={styles.statLabel}>{cell.label}</Text>
               <AnimatedCount value={cell.value} variant="title" style={styles.cellValue} />
-              <Text style={styles.cellLabel} numberOfLines={2}>
-                {cell.label}
-              </Text>
-              {!!cell.note && (
-                <Text variant="caption" color="textMuted" style={styles.center} numberOfLines={1}>
-                  {cell.note}
-                </Text>
-              )}
             </View>
           ))}
         </View>
       </View>
 
-      {/* Grouped highlight cards */}
       {groups.map((g) => (
         <View key={g.group} style={styles.card}>
           <Text style={styles.kicker}>{g.title}</Text>
@@ -177,8 +151,18 @@ const createStyles = (colors: ThemeColors) =>
     },
     content: {
       paddingHorizontal: spacing.md,
-      paddingTop: spacing.sm,
+      paddingTop: spacing.xs,
       gap: spacing.md,
+    },
+    overviewCard: {
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.md,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
     },
     card: {
       padding: spacing.md,
@@ -188,7 +172,6 @@ const createStyles = (colors: ThemeColors) =>
       borderColor: colors.border,
       gap: spacing.sm,
     },
-    // The shared typographic theme: small, uppercase, letter-spaced kicker.
     kicker: {
       fontSize: 11,
       fontWeight: '700',
@@ -196,54 +179,48 @@ const createStyles = (colors: ThemeColors) =>
       textTransform: 'uppercase',
       color: colors.textMuted,
     },
-    center: {
-      textAlign: 'center',
+    distanceBlock: {
+      gap: 2,
     },
-    heroValue: {
-      fontSize: 40,
-      textAlign: 'center',
+    statLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 1.1,
+      textTransform: 'uppercase',
+      color: colors.textMuted,
+    },
+    milesValue: {
+      fontSize: 28,
+      fontWeight: '700',
       color: colors.text,
+      letterSpacing: -0.5,
+    },
+    cosmicLine: {
+      marginTop: 2,
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.primary,
     },
     divider: {
-      height: 1,
+      height: StyleSheet.hairlineWidth,
       backgroundColor: colors.border,
-      marginVertical: spacing.xs,
-    },
-    compareRow: {
-      flexDirection: 'row',
-    },
-    compareCell: {
-      flex: 1,
-      alignItems: 'center',
-      gap: spacing.xxs,
-      paddingHorizontal: spacing.xs,
-    },
-    compareValue: {
-      fontSize: 22,
-      fontWeight: '700',
-      color: colors.primary,
+      marginVertical: spacing.xxs,
     },
     grid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
+      rowGap: spacing.sm,
     },
     cell: {
       width: '33.33%',
-      alignItems: 'center',
-      gap: 2,
-      paddingVertical: spacing.sm,
+      gap: 1,
+      paddingRight: spacing.xs,
     },
     cellValue: {
-      fontSize: 24,
+      fontSize: 22,
+      fontWeight: '700',
       color: colors.text,
-    },
-    cellLabel: {
-      fontSize: 11,
-      fontWeight: '600',
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-      textAlign: 'center',
-      color: colors.textMuted,
+      letterSpacing: -0.3,
     },
     row: {
       flexDirection: 'row',

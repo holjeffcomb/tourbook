@@ -109,6 +109,10 @@ export function PassportScreen() {
         label: p.label,
         city: p.city,
         tourCount: p.tourIds.length,
+        tourNames: p.tourIds
+          .map((id) => tours.find((t) => t.id === id)?.actName)
+          .filter((name): name is string => !!name),
+        firstVisit: p.firstVisit,
         lastVisit: p.lastVisit,
       })),
       routes: computeTourRoutes(filtered).map((r) => ({

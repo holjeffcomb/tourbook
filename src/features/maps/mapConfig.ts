@@ -1,4 +1,4 @@
-import Mapbox from '@rnmapbox/maps';
+import Mapbox, { type StandardStyleConfig } from '@rnmapbox/maps';
 import { env } from '@/lib/env';
 import type { ColorScheme } from '@/theme';
 
@@ -16,11 +16,55 @@ export type MapStyleVariant =
   // Low-chroma basemap so pins/heatmap read clearly (the "passport" look).
   | 'minimal'
   // Full street map with POI labels — shows nearby businesses around a place.
-  | 'streets';
+  | 'streets'
+  // Mapbox Standard at dusk — warm, atmospheric, not daylight-bright.
+  | 'dusk'
+  // Mapbox Standard at night — deep and cinematic.
+  | 'night'
+  // Standard Satellite with dusk lighting — aerial without harsh noon glare.
+  | 'satellite';
 
+export type ResolvedMapStyle = {
+  url: string;
+  /** Present for Mapbox Standard / Standard Satellite; applied via StyleImport. */
+  basemap?: StandardStyleConfig;
+};
+
+const STANDARD = 'mapbox://styles/mapbox/standard';
+const STANDARD_SATELLITE = 'mapbox://styles/mapbox/standard-satellite';
+
+/** Quiet Standard config so overview maps stay 2D and label-light. */
+function standardBasemap(lightPreset: StandardStyleConfig['lightPreset'], theme?: StandardStyleConfig['theme']): StandardStyleConfig {
+  return {
+    lightPreset,
+    theme: theme ?? 'default',
+    show3dObjects: false,
+    show3dBuildings: false,
+    show3dTrees: false,
+    showPointOfInterestLabels: false,
+    showTransitLabels: false,
+  };
+}
+
+export function resolveMapStyle(scheme: ColorScheme, variant: MapStyleVariant): ResolvedMapStyle {
+  switch (variant) {
+    case 'streets':
+      return { url: Mapbox.StyleURL.Street };
+    case 'dusk':
+      return { url: STANDARD, basemap: standardBasemap('dusk', 'faded') };
+    case 'night':
+      return { url: STANDARD, basemap: standardBasemap('night') };
+    case 'satellite':
+      return { url: STANDARD_SATELLITE, basemap: standardBasemap('dusk') };
+    case 'minimal':
+    default:
+      return { url: scheme === 'dark' ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light };
+  }
+}
+
+/** Convenience for callers that only need the style URL. */
 export function mapStyleUrl(scheme: ColorScheme, variant: MapStyleVariant): string {
-  if (variant === 'streets') return Mapbox.StyleURL.Street;
-  return scheme === 'dark' ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light;
+  return resolveMapStyle(scheme, variant).url;
 }
 
 /**

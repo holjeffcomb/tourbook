@@ -5,6 +5,7 @@ import {
   MapView,
   PointAnnotation,
   ShapeSource,
+  StyleImport,
   SymbolLayer,
   type CircleLayerStyle,
   type LineLayerStyle,
@@ -12,16 +13,15 @@ import {
 } from '@rnmapbox/maps';
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactElement } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { arcedPath } from '@/lib/geo';
+import { arcedPath, trimmedOverviewFrame } from '@/lib/geo';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
-import { expr, isMapboxConfigured, mapStyleUrl } from './mapConfig';
+import { expr, isMapboxConfigured, resolveMapStyle, type MapStyleVariant } from './mapConfig';
 import {
   useActiveMapEntry,
   type Coord,
-  type MapPlace,
   type MapScene,
   type SceneMarker,
 } from './mapScene';
@@ -29,8 +29,45 @@ import {
 // Baked-in tuning for the clustered places / routes overlays (previously the
 // Lifetime map's config). Kept as constants so the shared stage stays simple.
 const CLUSTER = { radius: 50, maxZoom: 12 };
-const POINTS = { minRadius: 6, maxRadius: 18, maxWeight: 8, opacity: 0.9, strokeWidth: 1.5 };
-const ROUTE = { lineWidth: 0.75, lineOpacity: 0.5, dotRadius: 2, arcCurvature: 0.2, arcSegments: 24 };
+const POINTS = {
+  // Radius also scales with camera zoom (see buildPointStyle) so the map stays
+  // calm when zoomed out and more tactile up close.
+  minRadius: 6,
+  maxRadius: 18,
+  maxWeight: 8,
+  opacity: 0.9,
+  strokeWidth: 1.5,
+  zoomOut: 3,
+  zoomIn: 12,
+  zoomOutScale: 0.45,
+  zoomInScale: 1.15,
+};
+// Route dots grow with zoom; hairline far out, comfortably tappable up close.
+const ROUTE = {
+  lineWidth: 0.75,
+  lineOpacity: 0.5,
+  // Light cream + thin dark border on Standard basemaps. Slightly thicker than
+  // Default so legs stay readable at continent zoom; still a hairline up close.
+  vividCore: '#F3E2C0',
+  vividLineWidth: 1.35,
+  vividLineOpacity: 1,
+  vividCasingExtra: 1.25,
+  vividCasingOpacity: 0.9,
+  vividCasing: '#1A1520',
+  vividDotStroke: '#1A1520',
+  dotRadiusOut: 2,
+  dotRadiusIn: 6.5,
+  zoomOut: 3,
+  zoomIn: 12,
+  arcCurvature: 0.2,
+  arcSegments: 24,
+};
+
+/** Standard dusk/night/satellite — busy, colourful basemaps that need louder overlays. */
+function isVividBasemap(variant: MapStyleVariant): boolean {
+  return variant === 'dusk' || variant === 'night' || variant === 'satellite';
+}
+const PLACE_LABEL_MIN_ZOOM = 8.5;
 const FALLBACK_CAMERA = { centerCoordinate: [-98.5, 39.8] as Coord, zoomLevel: 2.5 };
 const CLUSTER_PROPERTIES = { totalVisits: ['+', ['get', 'weight']] };
 
@@ -46,16 +83,29 @@ function buildClusterStyle(colors: ThemeColors): CircleLayerStyle {
   };
 }
 
+/** Weight-based radius expression, scaled for a given zoom factor. */
+function weightRadiusAtZoom(zoomScale: number, pad = 0): unknown[] {
+  return [
+    'interpolate',
+    ['linear'],
+    ['get', 'weight'],
+    1,
+    POINTS.minRadius * zoomScale + pad,
+    POINTS.maxWeight,
+    POINTS.maxRadius * zoomScale + pad,
+  ];
+}
+
 function buildPointStyle(colors: ThemeColors): CircleLayerStyle {
   return {
     circleRadius: expr([
       'interpolate',
       ['linear'],
-      ['get', 'weight'],
-      1,
-      POINTS.minRadius,
-      POINTS.maxWeight,
-      POINTS.maxRadius,
+      ['zoom'],
+      POINTS.zoomOut,
+      weightRadiusAtZoom(POINTS.zoomOutScale),
+      POINTS.zoomIn,
+      weightRadiusAtZoom(POINTS.zoomInScale),
     ]),
     circleColor: colors.primary,
     circleOpacity: POINTS.opacity,
@@ -79,11 +129,11 @@ function buildSelectedStyle(colors: ThemeColors): CircleLayerStyle {
     circleRadius: expr([
       'interpolate',
       ['linear'],
-      ['get', 'weight'],
-      1,
-      POINTS.minRadius + 4,
-      POINTS.maxWeight,
-      POINTS.maxRadius + 4,
+      ['zoom'],
+      POINTS.zoomOut,
+      weightRadiusAtZoom(POINTS.zoomOutScale, 3),
+      POINTS.zoomIn,
+      weightRadiusAtZoom(POINTS.zoomInScale, 4),
     ]),
     circleColor: 'rgba(0,0,0,0)',
     circleStrokeColor: colors.accent,
@@ -91,23 +141,83 @@ function buildSelectedStyle(colors: ThemeColors): CircleLayerStyle {
   };
 }
 
-function buildRouteLineStyle(colors: ThemeColors): LineLayerStyle {
+/**
+ * One stable LineLayer for every route. Colour / width come from feature
+ * properties so adding or removing tours only updates the GeoJSON source —
+ * never mounts/unmounts per-route layers (which races Mapbox with
+ * "Layer X is not in style").
+ */
+function buildRouteLineStyle(colors: ThemeColors, vivid: boolean): LineLayerStyle {
   return {
-    lineColor: colors.accent,
-    lineWidth: ROUTE.lineWidth,
-    lineOpacity: ROUTE.lineOpacity,
+    lineColor: expr([
+      'case',
+      ['has', 'color'],
+      ['get', 'color'],
+      vivid ? ROUTE.vividCore : colors.accent,
+    ]),
+    lineWidth: expr([
+      'case',
+      ['has', 'color'],
+      vivid ? ROUTE.vividLineWidth : 1,
+      vivid ? ROUTE.vividLineWidth : ROUTE.lineWidth,
+    ]),
+    lineOpacity: expr([
+      'case',
+      ['has', 'color'],
+      vivid ? 0.95 : 0.5,
+      vivid ? ROUTE.vividLineOpacity : ROUTE.lineOpacity,
+    ]),
     lineCap: 'round',
     lineJoin: 'round',
+    ...(vivid ? { lineEmissiveStrength: 1 } : null),
   };
 }
 
-function buildRouteDotStyle(colors: ThemeColors): CircleLayerStyle {
+/** Thin dark border drawn *under* the cream core (middle slot vs top). */
+function buildRouteCasingStyle(): LineLayerStyle {
   return {
-    circleRadius: ROUTE.dotRadius,
-    circleColor: colors.accent,
-    circleOpacity: 0.9,
-    circleStrokeColor: colors.surface,
-    circleStrokeWidth: 0.5,
+    lineColor: ROUTE.vividCasing,
+    lineWidth: ROUTE.vividLineWidth + ROUTE.vividCasingExtra,
+    lineOpacity: ROUTE.vividCasingOpacity,
+    lineCap: 'round',
+    lineJoin: 'round',
+    lineEmissiveStrength: 1,
+  };
+}
+
+function buildRouteDotStyle(colors: ThemeColors, vivid: boolean): CircleLayerStyle {
+  return {
+    circleRadius: expr([
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      ROUTE.zoomOut,
+      ROUTE.dotRadiusOut,
+      ROUTE.zoomIn,
+      ROUTE.dotRadiusIn,
+    ]),
+    circleColor: vivid ? ROUTE.vividCore : colors.accent,
+    circleOpacity: vivid ? 1 : 0.9,
+    circleStrokeColor: vivid ? ROUTE.vividDotStroke : colors.surface,
+    circleStrokeWidth: vivid ? 1.25 : 1,
+    ...(vivid ? { circleEmissiveStrength: 1 } : null),
+  };
+}
+
+/** City / venue name that fades in as you zoom toward a place. */
+function buildPlaceLabelStyle(colors: ThemeColors): SymbolLayerStyle {
+  return {
+    textField: expr(['get', 'title']),
+    textSize: 11,
+    textColor: colors.text,
+    textHaloColor: colors.surface,
+    textHaloWidth: 1.4,
+    textOffset: [0, 1.35],
+    textAnchor: 'top',
+    textMaxWidth: 10,
+    textOptional: true,
+    textAllowOverlap: false,
+    textIgnorePlacement: false,
   };
 }
 
@@ -184,11 +294,50 @@ function sceneCoords(scene: MapScene): Coord[] {
   return coords;
 }
 
-function formatVisitDate(date: string | null | undefined): string | null {
-  if (!date) return null;
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+/** Sparse samples along a polyline so densified routes don't dominate framing. */
+function sampleRouteCoords(coords: Coord[], maxPoints = 48): Coord[] {
+  if (coords.length <= maxPoints) return coords;
+  const out: Coord[] = [];
+  const step = (coords.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i += 1) {
+    out.push(coords[Math.round(i * step)]!);
+  }
+  return out;
+}
+
+/**
+ * Coordinates used for camera fitting. Prefer discrete place pins when present
+ * (cleaner than densified polylines); otherwise sparsely sample route geometry.
+ */
+function framingCoords(
+  scene: MapScene,
+  routes: { coordinates: Coord[] }[],
+  showRoutes: boolean,
+): Coord[] {
+  if (scene.focus && scene.focus.length > 0) return scene.focus;
+
+  if (showRoutes) {
+    if (scene.places && scene.places.length > 0) {
+      return scene.places.map((p) => [p.longitude, p.latitude] as Coord);
+    }
+    return routes.flatMap((r) => sampleRouteCoords(r.coordinates));
+  }
+  if (scene.places && scene.places.length > 0) {
+    return scene.places.map((p) => [p.longitude, p.latitude] as Coord);
+  }
+  return sceneCoords(scene);
+}
+
+/** Apply content-inset padding as a center shift at a given zoom. */
+function padCenter(
+  center: Coord,
+  zoom: number,
+  pad: { top: number; right: number; bottom: number; left: number },
+): Coord {
+  const worldSize = TILE * 2 ** zoom;
+  const centerXNorm = lngToNormX(center[0]) + (pad.right - pad.left) / 2 / worldSize;
+  const centerYNorm = latToNormY(center[1]) + (pad.bottom - pad.top) / 2 / worldSize;
+  return [centerXNorm * 360 - 180, normYToLat(centerYNorm)];
 }
 
 /**
@@ -207,16 +356,37 @@ export function MapStage() {
 
   const cameraRef = useRef<ComponentRef<typeof Camera>>(null);
   const sourceRef = useRef<ComponentRef<typeof ShapeSource>>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ShapeSource presses also bubble a MapView press — ignore that one so we
+  // don't clear the pane we just opened.
+  const ignoreNextMapPress = useRef(false);
+  // Last known camera — restored after a basemap style reload so switching
+  // Default/Outdoors/Satellite (or venue Streets) doesn't reset pan/zoom.
+  const lastCameraRef = useRef<{ center: Coord; zoom: number } | null>(null);
+  // While a style reload is in flight, ignore camera callbacks (they often
+  // report a transient world view) so we restore the pre-switch camera.
+  const freezeCameraTrackRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
-  // Bumped every time the basemap style finishes (re)loading. Switching a
-  // scene's `variant` (e.g. to Streets on the venue page) reloads the shared
-  // map's style, which can drop an in-flight camera command — so we re-aim once
-  // the new style is ready.
+  // Bumped every time the basemap style finishes (re)loading.
   const [styleEpoch, setStyleEpoch] = useState(0);
+  // Style identity that has actually finished loading. Custom layers only mount
+  // when this matches the current request — avoids updateLayer races on reload.
+  const [loadedStyleKey, setLoadedStyleKey] = useState<string | null>(null);
 
   const variant = scene?.variant ?? 'minimal';
+  const resolvedStyle = useMemo(() => resolveMapStyle(scheme, variant), [scheme, variant]);
+  const styleKey = `${scheme}:${resolvedStyle.url}`;
+  const overlaysReady = loadedStyleKey === styleKey;
+  // Freeze tracking only when the style *URL* changes (reload). Dusk ↔ Night
+  // share Standard and only tweak StyleImport config, so the camera stays live.
+  const prevStyleUrlRef = useRef(resolvedStyle.url);
+  if (prevStyleUrlRef.current !== resolvedStyle.url) {
+    prevStyleUrlRef.current = resolvedStyle.url;
+    freezeCameraTrackRef.current = true;
+  }
+  // Keep a ref so the style-loaded callback always stamps the latest key.
+  const requestedStyleKeyRef = useRef(styleKey);
+  requestedStyleKeyRef.current = styleKey;
   const places = useMemo(() => scene?.places ?? [], [scene]);
   const routes = useMemo(() => scene?.routes ?? [], [scene]);
   const markers = useMemo(() => scene?.markers ?? [], [scene]);
@@ -237,26 +407,26 @@ export function MapStage() {
     [scene],
   );
 
-  // Clear any place selection when the scene identity changes.
-  useEffect(() => {
-    setSelectedId(null);
-  }, [scene?.key]);
-
-  const placesById = useMemo(() => {
-    const map = new Map<string, MapPlace>();
-    for (const p of places) map.set(p.id, p);
-    return map;
-  }, [places]);
+  const selectedId = scene?.selectedPlaceId ?? null;
 
   const placeCollection = useMemo<FeatureCollection<Point>>(
     () => ({
       type: 'FeatureCollection',
-      features: places.map((p) => ({
-        type: 'Feature',
-        id: p.id,
-        properties: { placeId: p.id, weight: p.weight ?? 1 },
-        geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
-      })),
+      features: places.map((p) => {
+        const title = (p.city || p.label || '').trim();
+        return {
+          type: 'Feature' as const,
+          id: p.id,
+          properties: {
+            placeId: p.id,
+            weight: p.weight ?? 1,
+            title,
+            label: p.label ?? '',
+            city: p.city ?? '',
+          },
+          geometry: { type: 'Point' as const, coordinates: [p.longitude, p.latitude] },
+        };
+      }),
     }),
     [places],
   );
@@ -267,7 +437,11 @@ export function MapStage() {
       features: routes.map((r) => ({
         type: 'Feature',
         id: r.id,
-        properties: { routeId: r.id },
+        properties: {
+          routeId: r.id,
+          // Optional — absent colour falls back to the basemap default in style.
+          ...(r.color ? { color: r.color } : null),
+        },
         geometry: {
           type: 'LineString',
           coordinates: arcedPath(r.coordinates, ROUTE.arcCurvature, ROUTE.arcSegments),
@@ -299,16 +473,35 @@ export function MapStage() {
   // Camera framing: re-aim whenever the scene, its data, or its insets change.
   const framing = useMemo(() => {
     if (!scene) return null;
-    const coords = showRoutes
-      ? routes.flatMap((r) => r.coordinates)
-      : sceneCoords(scene);
+    const coords = framingCoords(scene, routes, showRoutes);
     if (coords.length === 0) return null;
+    if (coords.length === 1) {
+      return {
+        ne: coords[0],
+        sw: coords[0],
+        center: null as Coord | null,
+        single: coords[0],
+        zoom: scene.singleZoom ?? 9,
+      };
+    }
+    if (scene.focusMode === 'trimmed') {
+      const trimmed = trimmedOverviewFrame(coords);
+      return {
+        ne: trimmed.ne as Coord,
+        sw: trimmed.sw as Coord,
+        // Lock to the full-set center so US+Europe frames mid-ocean, not a cluster.
+        center: trimmed.center as Coord,
+        single: null as Coord | null,
+        zoom: scene.singleZoom ?? 9,
+      };
+    }
     const lngs = coords.map((c) => c[0]);
     const lats = coords.map((c) => c[1]);
     return {
       ne: [Math.max(...lngs), Math.max(...lats)] as Coord,
       sw: [Math.min(...lngs), Math.min(...lats)] as Coord,
-      single: coords.length === 1 ? coords[0] : null,
+      center: null as Coord | null,
+      single: null as Coord | null,
       zoom: scene.singleZoom ?? 9,
     };
   }, [scene, routes, showRoutes]);
@@ -318,57 +511,91 @@ export function MapStage() {
   // fit (center + zoom) ourselves rather than passing `bounds` to Mapbox, whose
   // bounds-fit only re-centers and keeps the current zoom on the new architecture.
   //
-  // Crucially, we only re-aim for deliberate reasons — a new scene / frameKey,
-  // the framing data first becoming available, the reserved insets moving (e.g.
-  // the sheet), the map first getting a size, or a style reload. Plain data
-  // changes within a scene (toggling the Lifetime year or routes/places) keep
-  // the same frameKey and therefore leave the user's current pan/zoom alone.
+  // Re-aim for deliberate framing changes (new scene / frameKey). Also wait for
+  // the sheet's reserved bottom inset on a new frameKey so routes aren't fitted
+  // into the full screen and then left hidden under the pane — but ignore later
+  // snap-driven inset changes so dragging the sheet doesn't reset pan/zoom.
   const frameKey = scene?.frameKey ?? scene?.key ?? '';
   const hasFraming = framing != null;
+  const bottomInset = Math.round(insets.bottom);
   const didInit = useRef(false);
+  const framedForRef = useRef<{ key: string; bottom: number } | null>(null);
   useEffect(() => {
     if (!framing || !mapReady) return;
     // A bounds fit needs the map's pixel size; a single point doesn't.
     if (!framing.single && (mapSize.width === 0 || mapSize.height === 0)) return;
+
+    const prev = framedForRef.current;
+    const isNewKey = !prev || prev.key !== frameKey;
+    // MapScreenScaffold / Lifetime start at bottom=0 until layout measures the
+    // sheet. Framing then would park the tour under the pane.
+    if (isNewKey && bottomInset <= 0) return;
+    // Same frameKey with a later snap change — leave the user's camera alone.
+    if (!isNewKey && prev.bottom > 0 && prev.bottom !== bottomInset) return;
+
     const pad = {
       top: 48 + insets.top,
-      bottom: 48 + insets.bottom,
+      bottom: 48 + bottomInset,
       left: 48 + insets.left,
       right: 48 + insets.right,
     };
-    const { center, zoom } = framing.single
-      ? { center: framing.single, zoom: framing.zoom }
-      : fitCamera(framing.ne, framing.sw, mapSize.width, mapSize.height, pad, FIT_MAX_ZOOM);
-    const duration = didInit.current ? 700 : 0;
+    let center: Coord;
+    let zoom: number;
+    if (framing.single) {
+      // Still honour sheet padding so a focused stop isn't buried under the pane.
+      center = padCenter(framing.single, framing.zoom, pad);
+      zoom = framing.zoom;
+    } else {
+      const fitted = fitCamera(
+        framing.ne,
+        framing.sw,
+        mapSize.width,
+        mapSize.height,
+        pad,
+        FIT_MAX_ZOOM,
+      );
+      zoom = fitted.zoom;
+      center = framing.center ? padCenter(framing.center, zoom, pad) : fitted.center;
+    }
+    const duration = didInit.current ? (scene?.focusDurationMs ?? 700) : 0;
+    const animationMode = didInit.current ? (scene?.focusAnimationMode ?? 'easeTo') : 'moveTo';
     didInit.current = true;
+    framedForRef.current = { key: frameKey, bottom: bottomInset };
+    lastCameraRef.current = { center, zoom };
     cameraRef.current?.setCamera({
       centerCoordinate: center,
       zoomLevel: zoom,
       animationDuration: duration,
+      animationMode,
     });
-    // `framing` is intentionally read fresh but excluded from deps so pure data
-    // changes don't re-aim; the listed deps are the deliberate re-frame reasons.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    frameKey,
-    hasFraming,
-    mapReady,
-    mapSize.width,
-    mapSize.height,
-    styleEpoch,
-    insets.top,
-    insets.bottom,
-    insets.left,
-    insets.right,
-  ]);
+  }, [frameKey, hasFraming, mapReady, mapSize.width, mapSize.height, bottomInset]);
+
+  // After a style reload, put the camera back where the user left it.
+  useEffect(() => {
+    if (styleEpoch === 0 || !mapReady) return;
+    const cam = lastCameraRef.current;
+    if (cam) {
+      cameraRef.current?.setCamera({
+        centerCoordinate: cam.center,
+        zoomLevel: cam.zoom,
+        animationDuration: 0,
+        animationMode: 'moveTo',
+      });
+    }
+    freezeCameraTrackRef.current = false;
+  }, [styleEpoch, mapReady]);
 
   const clusterStyle = useMemo(() => buildClusterStyle(colors), [colors]);
   const pointStyle = useMemo(() => buildPointStyle(colors), [colors]);
   const selectedStyle = useMemo(() => buildSelectedStyle(colors), [colors]);
   const clusterCountStyle = useMemo(() => buildCountStyle(colors, 'totalVisits'), [colors]);
   const pointCountStyle = useMemo(() => buildCountStyle(colors, 'weight'), [colors]);
-  const routeLineStyle = useMemo(() => buildRouteLineStyle(colors), [colors]);
-  const routeDotStyle = useMemo(() => buildRouteDotStyle(colors), [colors]);
+  const placeLabelStyle = useMemo(() => buildPlaceLabelStyle(colors), [colors]);
+  const vividRoutes = isVividBasemap(variant);
+  const routeLineStyle = useMemo(() => buildRouteLineStyle(colors, vividRoutes), [colors, vividRoutes]);
+  const routeCasingStyle = useMemo(() => buildRouteCasingStyle(), []);
+  const routeDotStyle = useMemo(() => buildRouteDotStyle(colors, vividRoutes), [colors, vividRoutes]);
   const routePointStyle = useMemo<CircleLayerStyle>(
     () => ({
       circleRadius: 2.5,
@@ -454,11 +681,10 @@ export function MapStage() {
   // the opaque navigator screen underneath shows through and stays tappable.
   const hidden = !scene;
 
-  const selected = !showRoutes && selectedId ? placesById.get(selectedId) : null;
-
   const handlePress = async (event: { features: Feature[] }) => {
     const feature = event.features?.[0];
     if (!feature) return;
+    ignoreNextMapPress.current = true;
     const props = (feature.properties ?? {}) as { cluster?: boolean; placeId?: string };
     if (props.cluster) {
       try {
@@ -472,11 +698,10 @@ export function MapStage() {
       } catch {
         // best-effort
       }
-      setSelectedId(null);
+      scene?.onSelectPlace?.(null);
       return;
     }
     if (props.placeId != null) {
-      setSelectedId(String(props.placeId));
       scene?.onSelectPlace?.(String(props.placeId));
     }
   };
@@ -484,47 +709,89 @@ export function MapStage() {
   const handleStopPress = (event: { features: Feature[] }) => {
     const feature = event.features?.[0];
     if (!feature) return;
+    ignoreNextMapPress.current = true;
     const props = (feature.properties ?? {}) as { stopId?: string };
     const stopId = props.stopId ?? (feature.id != null ? String(feature.id) : undefined);
     if (stopId != null) scene?.onSelectStop?.(String(stopId));
   };
 
-  const pointLayers: ReactElement[] = [
-    <CircleLayer
-      key="clusters"
-      id="places-clusters"
-      filter={expr(['has', 'point_count'])}
-      style={clusterStyle}
-    />,
-    <SymbolLayer
-      key="cluster-count"
-      id="places-cluster-count"
-      filter={expr(['has', 'point_count'])}
-      style={clusterCountStyle}
-    />,
-    <CircleLayer
-      key="points"
-      id="places-points"
-      filter={expr(['!', ['has', 'point_count']])}
-      style={pointStyle}
-    />,
-  ];
+  const handleMapBackgroundPress = () => {
+    if (ignoreNextMapPress.current) {
+      ignoreNextMapPress.current = false;
+      return;
+    }
+    scene?.onPressMapBackground?.();
+  };
+
+  // Places mode: clusters + weighted points. Routes mode: tappable stop dots
+  // along the tour lines (same place data, no clustering). On Standard styles,
+  // cream strokes go in `top`; dark casings sit in `middle` underneath.
+  const hasStandardBasemap = !!resolvedStyle.basemap;
+  const overlaySlot = hasStandardBasemap ? ('top' as const) : undefined;
+  const casingSlot = hasStandardBasemap ? ('middle' as const) : undefined;
+  const pointLayers: ReactElement[] = showRoutes
+    ? [
+        <CircleLayer
+          key="route-dots"
+          id="places-route-dots"
+          slot={overlaySlot}
+          style={routeDotStyle}
+        />,
+      ]
+    : [
+        <CircleLayer
+          key="clusters"
+          id="places-clusters"
+          slot={overlaySlot}
+          filter={expr(['has', 'point_count'])}
+          style={clusterStyle}
+        />,
+        <SymbolLayer
+          key="cluster-count"
+          id="places-cluster-count"
+          slot={overlaySlot}
+          filter={expr(['has', 'point_count'])}
+          style={clusterCountStyle}
+        />,
+        <CircleLayer
+          key="points"
+          id="places-points"
+          slot={overlaySlot}
+          filter={expr(['!', ['has', 'point_count']])}
+          style={pointStyle}
+        />,
+        <SymbolLayer
+          key="point-count"
+          id="places-point-count"
+          slot={overlaySlot}
+          filter={expr(['all', ['!', ['has', 'point_count']], ['>', ['get', 'weight'], 1]])}
+          style={pointCountStyle}
+        />,
+      ];
   if (selectedId) {
     pointLayers.push(
       <CircleLayer
         key="selected"
         id="places-selected"
-        filter={expr(['==', ['get', 'placeId'], selectedId])}
+        slot={overlaySlot}
+        filter={
+          showRoutes
+            ? expr(['==', ['get', 'placeId'], selectedId])
+            : expr(['all', ['!', ['has', 'point_count']], ['==', ['get', 'placeId'], selectedId]])
+        }
         style={selectedStyle}
       />,
     );
   }
+  // Zoom-dependent city/venue labels — places mode only on unclustered points.
   pointLayers.push(
     <SymbolLayer
-      key="point-count"
-      id="places-point-count"
-      filter={expr(['all', ['!', ['has', 'point_count']], ['>', ['get', 'weight'], 1]])}
-      style={pointCountStyle}
+      key="place-labels"
+      id="places-labels"
+      slot={overlaySlot}
+      filter={showRoutes ? undefined : expr(['!', ['has', 'point_count']])}
+      minZoomLevel={PLACE_LABEL_MIN_ZOOM}
+      style={placeLabelStyle}
     />,
   );
 
@@ -544,16 +811,37 @@ export function MapStage() {
       <MapView
         key={scheme}
         style={styles.map}
-        styleURL={mapStyleUrl(scheme, variant)}
+        styleURL={resolvedStyle.url}
         scaleBarEnabled={false}
         compassEnabled={false}
         scrollEnabled={interactive}
         zoomEnabled={interactive}
         rotateEnabled={false}
         pitchEnabled={false}
+        onPress={handleMapBackgroundPress}
+        onCameraChanged={(state) => {
+          if (freezeCameraTrackRef.current) return;
+          const center = state.properties.center;
+          const zoom = state.properties.zoom;
+          if (
+            Array.isArray(center) &&
+            center.length >= 2 &&
+            typeof center[0] === 'number' &&
+            typeof center[1] === 'number' &&
+            typeof zoom === 'number'
+          ) {
+            lastCameraRef.current = { center: [center[0], center[1]], zoom };
+          }
+        }}
         onDidFinishLoadingMap={() => setMapReady(true)}
-        onDidFinishLoadingStyle={() => setStyleEpoch((n) => n + 1)}
+        onDidFinishLoadingStyle={() => {
+          setLoadedStyleKey(requestedStyleKeyRef.current);
+          setStyleEpoch((n) => n + 1);
+        }}
       >
+        {resolvedStyle.basemap && (
+          <StyleImport id="basemap" existing config={resolvedStyle.basemap} />
+        )}
         <Camera
           ref={cameraRef}
           defaultSettings={{
@@ -563,151 +851,103 @@ export function MapStage() {
           animationDuration={0}
         />
 
-        {/* Explicit polylines: tour legs, near-miss connector, etc. */}
-        {lineGroups.map((group) => {
-          const shape: FeatureCollection<LineString> = {
-            type: 'FeatureCollection',
-            features: group.segments.map((seg, i) => ({
-              type: 'Feature',
-              id: `${group.id}-${i}`,
-              properties: {},
-              geometry: { type: 'LineString', coordinates: seg },
-            })),
-          };
-          const dashed = group.style === 'dashed';
-          return (
-            <ShapeSource key={group.id} id={`line-${group.id}`} shape={shape}>
-              <LineLayer
-                id={`line-${group.id}-layer`}
-                style={{
-                  lineColor: colors[group.color ?? 'primary'],
-                  lineWidth: group.width ?? 2,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                  ...(dashed ? { lineDasharray: [2, 2] } : null),
-                }}
-              />
-            </ShapeSource>
-          );
-        })}
-
-        {/* Routes: colour-coded per tour on the list maps; a translucent "heat"
-            layer per tour on the Lifetime map so overlapping routes read hotter. */}
-        {routes.length > 0 && (
-          <ShapeSource id="routes" shape={routeLines}>
-            {showRoutes
-              ? routes.map((route) => (
+        {/* Wait for the style to finish loading before mounting any custom
+            layers — prevents "Layer X is not in style" update races. */}
+        {overlaysReady && (
+          <>
+            {lineGroups.map((group) => {
+              const shape: FeatureCollection<LineString> = {
+                type: 'FeatureCollection',
+                features: group.segments.map((seg, i) => ({
+                  type: 'Feature',
+                  id: `${group.id}-${i}`,
+                  properties: {},
+                  geometry: { type: 'LineString', coordinates: seg },
+                })),
+              };
+              const dashed = group.style === 'dashed';
+              return (
+                <ShapeSource key={`${group.id}-${styleEpoch}`} id={`line-${group.id}`} shape={shape}>
                   <LineLayer
-                    key={`route-${route.id}`}
-                    id={`route-line-${route.id}`}
-                    filter={expr(['==', ['get', 'routeId'], route.id])}
-                    style={
-                      route.color
-                        ? {
-                            lineColor: route.color,
-                            lineWidth: 1,
-                            lineOpacity: 0.5,
-                            lineCap: 'round',
-                            lineJoin: 'round',
-                          }
-                        : routeLineStyle
-                    }
+                    id={`line-${group.id}-layer`}
+                    slot={overlaySlot}
+                    style={{
+                      lineColor: colors[group.color ?? 'primary'],
+                      lineWidth: group.width ?? 2,
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                      ...(dashed ? { lineDasharray: [2, 2] } : null),
+                    }}
                   />
-                ))
-              : []}
-          </ShapeSource>
-        )}
+                </ShapeSource>
+              );
+            })}
 
-        {/* Dots at each stop for colour-coded routes. */}
-        {showRoutes && routePoints.features.length > 0 && (
-          <ShapeSource id="route-points" shape={routePoints}>
-            <CircleLayer id="route-points-layer" style={routePointStyle} />
-          </ShapeSource>
-        )}
+            {routes.length > 0 && showRoutes && vividRoutes && (
+              <ShapeSource key={`route-casings-${styleEpoch}`} id="route-casings" shape={routeLines}>
+                {/* Default (uncoloured) Lifetime routes only — tour-list colours skip casing. */}
+                <LineLayer
+                  id="route-casings-layer"
+                  slot={casingSlot}
+                  filter={expr(['!', ['has', 'color']])}
+                  style={routeCasingStyle}
+                />
+              </ShapeSource>
+            )}
 
-        {/* Lifetime clustered places overlay. */}
-        {places.length > 0 && (
-          <ShapeSource
-            ref={sourceRef}
-            id="places"
-            shape={placeCollection}
-            cluster
-            clusterRadius={CLUSTER.radius}
-            clusterMaxZoomLevel={CLUSTER.maxZoom}
-            clusterProperties={CLUSTER_PROPERTIES}
-            onPress={handlePress}
-          >
-            {showRoutes ? [] : pointLayers}
-          </ShapeSource>
-        )}
+            {routes.length > 0 && showRoutes && (
+              <ShapeSource key={`routes-${styleEpoch}`} id="routes" shape={routeLines}>
+                <LineLayer
+                  id="route-lines"
+                  slot={overlaySlot}
+                  style={routeLineStyle}
+                />
+              </ShapeSource>
+            )}
 
-        {places.length > 0 && ROUTE.dotRadius > 0 && (
-          <ShapeSource id="route-dots" shape={placeCollection}>
-            {showRoutes
-              ? [<CircleLayer key="route-dots" id="route-dots-layer" style={routeDotStyle} />]
-              : []}
-          </ShapeSource>
-        )}
+            {showRoutes && routePoints.features.length > 0 && (
+              <ShapeSource key={`route-points-${styleEpoch}`} id="route-points" shape={routePoints}>
+                <CircleLayer id="route-points-layer" slot={overlaySlot} style={routePointStyle} />
+              </ShapeSource>
+            )}
 
-        {/* Numbered tour stops, layered above the route line. */}
-        {stopMarkers.length > 0 && (
-          <ShapeSource id="stops" shape={stopCollection} onPress={handleStopPress}>
-            <CircleLayer id="stops-dots" style={stopDotStyle} />
-            <SymbolLayer id="stops-labels" style={stopLabelStyle} />
-          </ShapeSource>
-        )}
+            {places.length > 0 && (
+              <ShapeSource
+                ref={sourceRef}
+                key={`places-${showRoutes ? 'routes' : 'clustered'}-${styleEpoch}`}
+                id="places"
+                shape={placeCollection}
+                cluster={!showRoutes}
+                clusterRadius={CLUSTER.radius}
+                clusterMaxZoomLevel={CLUSTER.maxZoom}
+                clusterProperties={CLUSTER_PROPERTIES}
+                onPress={handlePress}
+              >
+                {pointLayers}
+              </ShapeSource>
+            )}
 
-        {/* You / Them / venue pins as themed marker views. */}
-        {pinMarkers.map((marker) => (
-          <PointAnnotation key={marker.id} id={marker.id} coordinate={marker.coordinate}>
-            <MarkerView marker={marker} styles={styles} />
-          </PointAnnotation>
-        ))}
+            {stopMarkers.length > 0 && (
+              <ShapeSource
+                key={`stops-${styleEpoch}`}
+                id="stops"
+                shape={stopCollection}
+                onPress={handleStopPress}
+              >
+                <CircleLayer id="stops-dots" slot={overlaySlot} style={stopDotStyle} />
+                <SymbolLayer id="stops-labels" slot={overlaySlot} style={stopLabelStyle} />
+              </ShapeSource>
+            )}
+
+            {pinMarkers.map((marker) => (
+              <PointAnnotation key={marker.id} id={marker.id} coordinate={marker.coordinate}>
+                <MarkerView marker={marker} styles={styles} />
+              </PointAnnotation>
+            ))}
+          </>
+        )}
       </MapView>
 
-      {selected && (
-        <View style={[styles.detailCard, { bottom: insets.bottom + spacing.sm }]}>
-          <View style={styles.detailHeader}>
-            <View style={styles.detailTitleWrap}>
-              <Text variant="heading" numberOfLines={1}>
-                {selected.label || selected.city || 'Place'}
-              </Text>
-              {!!selected.city && selected.label !== selected.city && (
-                <Text variant="caption" color="textMuted" numberOfLines={1}>
-                  {selected.city}
-                </Text>
-              )}
-            </View>
-            <Pressable
-              onPress={() => setSelectedId(null)}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Close place details"
-            >
-              <Text variant="body" color="textMuted">
-                ✕
-              </Text>
-            </Pressable>
-          </View>
-          <View style={styles.detailStats}>
-            <DetailStat
-              value={String(selected.weight ?? 1)}
-              label={`visit${(selected.weight ?? 1) === 1 ? '' : 's'}`}
-              styles={styles}
-            />
-            {selected.tourCount != null && (
-              <DetailStat
-                value={String(selected.tourCount)}
-                label={`tour${selected.tourCount === 1 ? '' : 's'}`}
-                styles={styles}
-              />
-            )}
-            {!!formatVisitDate(selected.lastVisit) && (
-              <DetailStat value={formatVisitDate(selected.lastVisit)!} label="last visit" wide styles={styles} />
-            )}
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -736,29 +976,6 @@ function MarkerView({
   );
 }
 
-function DetailStat({
-  value,
-  label,
-  wide,
-  styles,
-}: {
-  value: string;
-  label: string;
-  wide?: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={[styles.detailStat, wide && styles.detailStatWide]}>
-      <Text variant="body" style={styles.detailStatValue}>
-        {value}
-      </Text>
-      <Text variant="caption" color="textMuted">
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     root: {
@@ -770,46 +987,6 @@ const createStyles = (colors: ThemeColors) =>
     },
     map: {
       flex: 1,
-    },
-    detailCard: {
-      position: 'absolute',
-      left: spacing.md,
-      right: spacing.md,
-      backgroundColor: colors.surfaceElevated,
-      borderRadius: radius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: spacing.md,
-      gap: spacing.sm,
-      shadowColor: '#000',
-      shadowOpacity: 0.18,
-      shadowRadius: 24,
-      shadowOffset: { width: 0, height: 10 },
-      elevation: 12,
-    },
-    detailHeader: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      gap: spacing.sm,
-    },
-    detailTitleWrap: {
-      flex: 1,
-      gap: 2,
-    },
-    detailStats: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.lg,
-    },
-    detailStat: {
-      gap: 2,
-    },
-    detailStatWide: {
-      flexShrink: 1,
-    },
-    detailStatValue: {
-      fontWeight: '700',
     },
     // Marker views
     pin: {
