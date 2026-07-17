@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { useAuth } from '@/features/auth/AuthContext';
+import { pickActiveTour } from '@/features/tours/tourMode';
+import { dateToISO } from '@/lib/date';
 import {
   createTour,
   deleteTour,
@@ -36,6 +39,21 @@ export function useTours() {
     queryFn: () => listMyTours(userId as string),
     enabled: !!userId,
   });
+}
+
+/**
+ * Detects "Tour Mode": the tour (if any) whose dates contain today, so the app
+ * can automatically focus the user on where they are right now. Derived from
+ * `useTours` + the current date — no separate query or user toggle.
+ */
+export function useActiveTour() {
+  const query = useTours();
+  const todayISO = dateToISO(new Date());
+  const activeTour = useMemo(
+    () => (query.data ? pickActiveTour(query.data, todayISO) : null),
+    [query.data, todayISO],
+  );
+  return { activeTour, todayISO, isLoading: query.isLoading };
 }
 
 export function useTour(id: string) {

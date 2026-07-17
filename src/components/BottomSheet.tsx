@@ -29,6 +29,9 @@ const SNAP_SPRING = { damping: 22, stiffness: 220, mass: 0.7, overshootClamping:
 // direction instead of picking the nearest point, so a fast drag "throws" it.
 const FLING_VELOCITY = 550;
 
+/** Gap between the sheet and the screen edges so the map peeks around it. */
+export const BOTTOM_SHEET_INSET = spacing.sm;
+
 export type BottomSheetHandle = {
   /** Animate to a snap point by index (clamped to the available points). */
   snapTo: (index: number) => void;
@@ -60,9 +63,12 @@ type Props = {
 
 /**
  * A translucent, multi-snap bottom sheet floating over the map. The grabber and
- * `header` region are the drag surface; the body scrolls independently. The
- * sheet is sized to its tallest snap point and slides down to reveal shorter
- * ones, so the map stays visible behind it at every position.
+ * `header` region are the drag surface; the body scrolls independently.
+ *
+ * Height is animated to the active snap (anchored at the bottom) rather than
+ * sliding a max-height panel with translateY. That way the body's ScrollView
+ * viewport matches what's actually visible — otherwise mid-snap content that
+ * fits the tall layout but sits below the fold can't be scrolled into view.
  */
 export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomSheet(
   { snapPoints, initialIndex = 0, progress, motion, onSnapChange, header, children },
@@ -75,37 +81,39 @@ export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomS
   const maxHeight = points[points.length - 1] ?? 0;
   const minHeight = points[0] ?? 0;
 
-  // translateY: 0 = fully expanded (tallest); larger = slid down (shorter).
-  // offset(i) = maxHeight - points[i]. Range is [0, maxHeight - minHeight].
+  // sheetHeight tracks the visible snap height. Internally we still reason in
+  // "offset from max" (0 = tallest) so drag math stays simple.
   const offsets = useMemo(() => points.map((p) => maxHeight - p), [points, maxHeight]);
   const maxOffset = maxHeight - minHeight;
 
-  const translateY = useSharedValue(offsets[Math.min(initialIndex, offsets.length - 1)] ?? 0);
-  const startY = useSharedValue(0);
+  const initialOffset = offsets[Math.min(initialIndex, offsets.length - 1)] ?? 0;
+  const sheetHeight = useSharedValue(maxHeight - initialOffset);
+  const startHeight = useSharedValue(maxHeight - initialOffset);
 
   // Seed `progress` from the resting snap once the geometry is known, so chrome
   // (header/map) starts in sync with where the sheet actually sits.
   const seeded = useRef(false);
   useEffect(() => {
-    if (seeded.current || maxOffset <= 0) return;
+    if (seeded.current || maxHeight <= 0) return;
     seeded.current = true;
-    const y = offsets[Math.min(initialIndex, offsets.length - 1)] ?? 0;
-    translateY.value = y;
-    progress.value = 1 - y / maxOffset;
-  }, [maxOffset, offsets, initialIndex, progress, translateY]);
+    const h = maxHeight - (offsets[Math.min(initialIndex, offsets.length - 1)] ?? 0);
+    sheetHeight.value = h;
+    progress.value = maxOffset > 0 ? (h - minHeight) / maxOffset : 1;
+  }, [maxHeight, maxOffset, minHeight, offsets, initialIndex, progress, sheetHeight]);
 
-  const updateProgress = (y: number) => {
+  const updateProgress = (h: number) => {
     'worklet';
-    progress.value = maxOffset > 0 ? 1 - y / maxOffset : 1;
+    progress.value = maxOffset > 0 ? (h - minHeight) / maxOffset : 1;
   };
 
   const settleTo = (index: number) => {
     'worklet';
     const clamped = Math.max(0, Math.min(index, offsets.length - 1));
+    const target = maxHeight - offsets[clamped];
     if (motion) motion.value = 1;
-    translateY.value = withSpring(offsets[clamped], SNAP_SPRING, (finished) => {
+    sheetHeight.value = withSpring(target, SNAP_SPRING, (finished) => {
       if (finished) {
-        updateProgress(offsets[clamped]);
+        updateProgress(target);
         if (motion) motion.value = 0;
       }
     });
@@ -116,14 +124,15 @@ export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomS
     snapTo: (index: number) => settleTo(index),
   }));
 
-  const nearestIndex = (y: number, velocity: number) => {
+  const nearestIndex = (h: number, velocity: number) => {
     'worklet';
-    // Project a little along the fling so a flick lands on the next snap.
-    const projected = y + velocity * 0.08;
+    // Velocity is in the drag direction (down = shorter). Project a little along
+    // the fling so a flick lands on the next snap.
+    const projected = h - velocity * 0.08;
     let best = 0;
     let bestDist = Infinity;
-    for (let i = 0; i < offsets.length; i += 1) {
-      const d = Math.abs(offsets[i] - projected);
+    for (let i = 0; i < points.length; i += 1) {
+      const d = Math.abs(points[i] - projected);
       if (d < bestDist) {
         bestDist = d;
         best = i;
@@ -134,32 +143,33 @@ export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomS
 
   const pan = Gesture.Pan()
     .onStart(() => {
-      startY.value = translateY.value;
+      startHeight.value = sheetHeight.value;
       if (motion) motion.value = 1;
     })
     .onUpdate((e) => {
-      const next = startY.value + e.translationY;
-      translateY.value = Math.max(0, Math.min(next, maxOffset));
-      updateProgress(translateY.value);
+      // Drag down → shorter sheet; drag up → taller.
+      const next = startHeight.value - e.translationY;
+      sheetHeight.value = Math.max(minHeight, Math.min(next, maxHeight));
+      updateProgress(sheetHeight.value);
     })
     .onEnd((e) => {
-      // Index rises as the snap gets taller (offset shrinks). A strong upward
-      // fling steps to the next-taller snap; a downward fling to the next-shorter
-      // one; otherwise we settle on whichever snap is nearest.
-      const current = nearestIndex(translateY.value, 0);
+      // Index rises as the snap gets taller. A strong upward fling steps to the
+      // next-taller snap; a downward fling to the next-shorter one; otherwise we
+      // settle on whichever snap is nearest.
+      const current = nearestIndex(sheetHeight.value, 0);
       let index: number;
       if (e.velocityY < -FLING_VELOCITY) {
-        index = Math.min(current + 1, offsets.length - 1);
+        index = Math.min(current + 1, points.length - 1);
       } else if (e.velocityY > FLING_VELOCITY) {
         index = Math.max(current - 1, 0);
       } else {
-        index = nearestIndex(translateY.value, e.velocityY);
+        index = nearestIndex(sheetHeight.value, e.velocityY);
       }
       settleTo(index);
     });
 
   const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
+    height: sheetHeight.value,
   }));
 
   // A soft shadow that deepens as the sheet rises, reinforcing the floating feel.
@@ -168,12 +178,9 @@ export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomS
   }));
 
   return (
-    <Animated.View
-      style={[styles.sheet, { height: maxHeight }, sheetStyle, shadowStyle]}
-      pointerEvents="box-none"
-    >
+    <Animated.View style={[styles.sheet, sheetStyle, shadowStyle]} pointerEvents="box-none">
       <BlurView
-        intensity={scheme === 'dark' ? 40 : 60}
+        intensity={scheme === 'dark' ? 28 : 42}
         tint={scheme === 'dark' ? 'dark' : 'light'}
         style={StyleSheet.absoluteFill}
       />
@@ -195,18 +202,18 @@ const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     sheet: {
       position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
-      borderTopLeftRadius: radius.xl,
-      borderTopRightRadius: radius.xl,
+      left: BOTTOM_SHEET_INSET,
+      right: BOTTOM_SHEET_INSET,
+      bottom: BOTTOM_SHEET_INSET,
+      borderRadius: radius.xl,
       overflow: 'hidden',
-      borderTopWidth: StyleSheet.hairlineWidth,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       ...elevation.lg,
-      shadowOffset: { width: 0, height: -8 },
+      shadowOffset: { width: 0, height: -4 },
     },
-    // A translucent wash over the blur so text stays legible on busy map areas.
+    // A light wash over the blur — translucent enough for the map to read
+    // through at the edges, while header/body content stays fully opaque.
     surfaceTint: {
       position: 'absolute',
       top: 0,
@@ -214,7 +221,7 @@ const createStyles = (colors: ThemeColors) =>
       right: 0,
       bottom: 0,
       backgroundColor: colors.surface,
-      opacity: 0.82,
+      opacity: 0.55,
     },
     grabZone: {
       paddingTop: spacing.sm,

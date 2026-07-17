@@ -9,7 +9,8 @@ import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
 import { TAB_BAR_HEIGHT, type MapScene } from '@/features/maps/mapScene';
 import { routeColorAt } from '@/features/maps/routeColors';
 import type { MyTour } from '@/features/tours/api';
-import { useTours } from '@/features/tours/queries';
+import { useActiveTour, useTours } from '@/features/tours/queries';
+import { TourModeScreen } from '@/features/tours/TourModeScreen';
 import { useTourRouteLines } from '@/features/tours/useTourRouteLines';
 import { dateToISO, formatDateRange } from '@/lib/date';
 import { radius, spacing, type ThemeColors } from '@/theme';
@@ -60,7 +61,7 @@ function TourRow({
       <View style={[styles.accent, { backgroundColor: color }]} />
       <View style={[styles.thumb, featured && styles.thumbFeatured]}>
         {/* Placeholder until tours carry image thumbnails. */}
-        <Icon name="musical-notes" size={featured ? 26 : 22} color="textMuted" />
+        <Icon name="map" size={featured ? 26 : 22} color="textMuted" />
       </View>
       <View style={styles.rowBody}>
         <Text variant={featured ? 'heading' : 'subheading'} numberOfLines={1}>
@@ -125,7 +126,36 @@ function FocusToggle({
   );
 }
 
+/**
+ * The "My Tours" tab. When the current date falls inside one of the user's
+ * tours the app enters Tour Mode (focused on where they are vs. the venue);
+ * otherwise it shows the upcoming-tours overview list. The switch is automatic
+ * and date-driven, but the user can drop back to the list at any time (and jump
+ * straight back into the current tour from there).
+ */
 export function TourListScreen() {
+  const { activeTour, todayISO } = useActiveTour();
+  const [showList, setShowList] = useState(false);
+
+  if (activeTour && !showList) {
+    return (
+      <TourModeScreen
+        tour={activeTour}
+        todayISO={todayISO}
+        onViewList={() => setShowList(true)}
+      />
+    );
+  }
+  return <UpcomingToursScreen activeTour={activeTour} onResumeTour={() => setShowList(false)} />;
+}
+
+function UpcomingToursScreen({
+  activeTour,
+  onResumeTour,
+}: {
+  activeTour: MyTour | null;
+  onResumeTour: () => void;
+}) {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -145,22 +175,29 @@ export function TourListScreen() {
       });
   }, [tours, todayISO]);
 
-  const nextTour = upcoming[0] ?? null;
-  const rest = upcoming.slice(1);
+  // The active tour is surfaced separately as "Current tour", so keep it out of
+  // the plain upcoming list to avoid showing it twice.
+  const activeId = activeTour?.id ?? null;
+  const others = useMemo(() => upcoming.filter((t) => t.id !== activeId), [upcoming, activeId]);
+  const nextTour = others[0] ?? null;
+  const rest = others.slice(1);
+  // What the "Next tour" map focus should frame — falls back to the current tour
+  // when there's nothing else upcoming.
+  const focusTour = nextTour ?? activeTour;
   const upcomingIds = useMemo(() => upcoming.map((t) => t.id), [upcoming]);
   const colorIndex = useMemo(() => new Map(upcomingIds.map((id, i) => [id, i])), [upcomingIds]);
 
   const { routes: allRoutes } = useTourRouteLines(upcomingIds);
   const routes = useMemo(() => {
-    if (focusMode === 'next' && nextTour) {
-      return allRoutes.filter((r) => r.id === nextTour.id);
+    if (focusMode === 'next' && focusTour) {
+      return allRoutes.filter((r) => r.id === focusTour.id);
     }
     return allRoutes;
-  }, [allRoutes, focusMode, nextTour]);
+  }, [allRoutes, focusMode, focusTour]);
 
   const scene = useMemo<MapScene>(() => {
     const focusIds =
-      focusMode === 'next' && nextTour ? [nextTour.id] : upcomingIds;
+      focusMode === 'next' && focusTour ? [focusTour.id] : upcomingIds;
     return {
       key: 'my-tours',
       frameKey: `my-tours-${focusMode}-${focusIds.join('|')}`,
@@ -170,7 +207,7 @@ export function TourListScreen() {
       routes,
       contentInsets: { top: insets.top + 56, left: spacing.md, right: spacing.md },
     };
-  }, [routes, focusMode, nextTour, upcomingIds, insets.top]);
+  }, [routes, focusMode, focusTour, upcomingIds, insets.top]);
 
   const sheetHeader = (
     <View style={styles.sheetHeader}>
@@ -213,17 +250,37 @@ export function TourListScreen() {
             <Text color="danger">Couldn&apos;t load your tours.</Text>
             <Button title="Retry" variant="secondary" onPress={() => refetch()} />
           </View>
-        ) : nextTour ? (
+        ) : activeTour || nextTour ? (
           <>
-            <View style={styles.section}>
-              <Text style={styles.sectionKicker}>Upcoming tour</Text>
-              <TourRow
-                tour={nextTour}
-                color={routeColorAt(colorIndex.get(nextTour.id) ?? 0)}
-                featured
-                onPress={() => openTour(nextTour.id)}
-              />
-            </View>
+            {activeTour && (
+              <View style={styles.section}>
+                <View style={styles.currentKickerRow}>
+                  <View style={styles.currentDot} />
+                  <Text style={styles.currentKicker}>Current tour</Text>
+                </View>
+                <TourRow
+                  tour={activeTour}
+                  color={routeColorAt(colorIndex.get(activeTour.id) ?? 0)}
+                  featured
+                  onPress={onResumeTour}
+                />
+                <Text variant="caption" color="textMuted" style={styles.resumeHint}>
+                  You&apos;re on this tour now — tap to reopen Tour Mode.
+                </Text>
+              </View>
+            )}
+
+            {nextTour && (
+              <View style={styles.section}>
+                <Text style={styles.sectionKicker}>{activeTour ? 'Next tour' : 'Upcoming tour'}</Text>
+                <TourRow
+                  tour={nextTour}
+                  color={routeColorAt(colorIndex.get(nextTour.id) ?? 0)}
+                  featured
+                  onPress={() => openTour(nextTour.id)}
+                />
+              </View>
+            )}
 
             {focusMode === 'all' && rest.length > 0 && (
               <View style={styles.section}>
@@ -246,7 +303,7 @@ export function TourListScreen() {
                 style={({ pressed }) => [styles.showAllHint, pressed && styles.rowPressed]}
               >
                 <Text variant="callout" color="primary">
-                  Show all {upcoming.length} upcoming tours
+                  Show all {others.length} upcoming tours
                 </Text>
                 <Icon name="chevron-forward" size={16} color="primary" />
               </Pressable>
@@ -307,6 +364,28 @@ const createStyles = (colors: ThemeColors) =>
       textTransform: 'uppercase',
       color: colors.textMuted,
       marginBottom: 2,
+    },
+    currentKickerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      marginBottom: 2,
+    },
+    currentDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: colors.success,
+    },
+    currentKicker: {
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+      color: colors.success,
+    },
+    resumeHint: {
+      marginTop: 2,
     },
     showAllHint: {
       flexDirection: 'row',

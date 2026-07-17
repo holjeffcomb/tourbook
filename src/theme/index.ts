@@ -160,15 +160,17 @@ export type ElevationToken = keyof typeof elevation;
 // Typography scale (size + weight + line height)
 // ---------------------------------------------------------------------------
 
+// Slightly condensed vs. stock iOS sizes — readable on phone, denser on map
+// sheets where stats and lists compete with the map for vertical space.
 export const typography = {
-  display: { fontSize: 34, fontWeight: '800', lineHeight: 40 },
-  title: { fontSize: 28, fontWeight: '700', lineHeight: 34 },
-  heading: { fontSize: 20, fontWeight: '600', lineHeight: 26 },
-  subheading: { fontSize: 17, fontWeight: '600', lineHeight: 22 },
-  body: { fontSize: 16, fontWeight: '400', lineHeight: 22 },
-  callout: { fontSize: 15, fontWeight: '500', lineHeight: 20 },
-  caption: { fontSize: 13, fontWeight: '400', lineHeight: 18 },
-  label: { fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  display: { fontSize: 30, fontWeight: '800', lineHeight: 36 },
+  title: { fontSize: 24, fontWeight: '700', lineHeight: 30 },
+  heading: { fontSize: 18, fontWeight: '600', lineHeight: 24 },
+  subheading: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  body: { fontSize: 15, fontWeight: '400', lineHeight: 20 },
+  callout: { fontSize: 14, fontWeight: '500', lineHeight: 18 },
+  caption: { fontSize: 12, fontWeight: '400', lineHeight: 16 },
+  label: { fontSize: 11, fontWeight: '600', lineHeight: 14 },
 } satisfies Record<string, TextStyle>;
 
 export const fontWeight = {

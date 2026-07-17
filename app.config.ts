@@ -18,6 +18,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         : {},
     ],
     // Mapbox's iOS pods require static frameworks under Expo's precompiled pipeline.
-    ['expo-build-properties', { ios: { useFrameworks: 'static' } }],
+    // `usePrecompiledModules: false` builds Expo modules from source so a newly
+    // added module (e.g. expo-location) always links against the installed
+    // ExpoModulesCore, instead of a mismatched precompiled XCFramework binary.
+    ['expo-build-properties', { ios: { useFrameworks: 'static', usePrecompiledModules: false } }],
   ],
 });

@@ -1,11 +1,8 @@
 import { reverseGeocodeCountry } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
+import { citiesCompatible, normalize } from '@/features/venues/match';
 
-// Mirrors the DB's generated normalized columns (lower(btrim(...))) so client
-// lookups match the unique (normalized_name, normalized_city) dedup key.
-function normalize(value: string) {
-  return value.trim().toLowerCase();
-}
+export { citiesCompatible };
 
 async function findVenueId(normalizedName: string, normalizedCity: string): Promise<string | null> {
   const { data, error } = await supabase
@@ -16,6 +13,46 @@ async function findVenueId(normalizedName: string, normalizedCity: string): Prom
     .maybeSingle();
   if (error) throw error;
   return data?.id ?? null;
+}
+
+export type CatalogVenueMatch = {
+  id: string;
+  name: string;
+  city: string;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+};
+
+/**
+ * Finds a venue already in the shared catalog that confidently matches a
+ * name+city (e.g. from an AI import), so a previously-used venue is reused
+ * instead of re-geocoded or duplicated. Matching is deliberately conservative:
+ * an exact normalized name plus a compatible city (see `citiesCompatible`).
+ * Returns the coordinate-bearing candidate when several share the name, else
+ * null when there's no confident match.
+ */
+export async function findCatalogVenue(
+  name: string,
+  city: string,
+): Promise<CatalogVenueMatch | null> {
+  const normalizedName = normalize(name);
+  if (!normalizedName || !city.trim()) return null;
+
+  const { data, error } = await supabase
+    .from('venues')
+    .select('id, name, city, country, latitude, longitude, address')
+    .eq('normalized_name', normalizedName);
+  if (error) throw error;
+
+  const compatible = ((data ?? []) as CatalogVenueMatch[]).filter((row) =>
+    citiesCompatible(row.city, city),
+  );
+  if (compatible.length === 0) return null;
+
+  // Prefer a match that already carries coordinates (immediately mappable).
+  return compatible.find((row) => row.latitude != null && row.longitude != null) ?? compatible[0];
 }
 
 export type VenueInput = {

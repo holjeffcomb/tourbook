@@ -122,12 +122,13 @@ function HighlightRow({
 
   return (
     <View style={styles.row}>
-      <Text variant="callout" color="textMuted" style={styles.rowLabel} numberOfLines={2}>
+      <Text variant="caption" color="textMuted" style={styles.rowLabel} numberOfLines={2}>
         {item.label}
       </Text>
       <View style={styles.rowRight}>
         <Text
-          variant="subheading"
+          variant="callout"
+          weight="semibold"
           color={tappable ? 'primary' : 'text'}
           align="right"
           onPress={tappable ? () => onPressPerson(stats.mostTouredWith!.userId) : undefined}
@@ -155,9 +156,9 @@ const createStyles = (colors: ThemeColors) =>
       gap: spacing.md,
     },
     overviewCard: {
-      paddingHorizontal: spacing.md,
+      paddingHorizontal: spacing.sm + 4,
       paddingTop: spacing.sm,
-      paddingBottom: spacing.md,
+      paddingBottom: spacing.sm + 4,
       borderRadius: radius.lg,
       backgroundColor: colors.surfaceElevated,
       borderWidth: 1,
@@ -165,39 +166,40 @@ const createStyles = (colors: ThemeColors) =>
       gap: spacing.sm,
     },
     card: {
-      padding: spacing.md,
+      paddingHorizontal: spacing.sm + 4,
+      paddingVertical: spacing.sm,
       borderRadius: radius.lg,
       backgroundColor: colors.surfaceElevated,
       borderWidth: 1,
       borderColor: colors.border,
-      gap: spacing.sm,
+      gap: spacing.xs,
     },
     kicker: {
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '700',
-      letterSpacing: 1.3,
+      letterSpacing: 1.2,
       textTransform: 'uppercase',
       color: colors.textMuted,
     },
     distanceBlock: {
-      gap: 2,
+      gap: 1,
     },
     statLabel: {
       fontSize: 10,
       fontWeight: '700',
-      letterSpacing: 1.1,
+      letterSpacing: 1.0,
       textTransform: 'uppercase',
       color: colors.textMuted,
     },
     milesValue: {
-      fontSize: 28,
+      fontSize: 24,
       fontWeight: '700',
       color: colors.text,
-      letterSpacing: -0.5,
+      letterSpacing: -0.4,
     },
     cosmicLine: {
-      marginTop: 2,
-      fontSize: 13,
+      marginTop: 1,
+      fontSize: 12,
       fontWeight: '600',
       color: colors.primary,
     },
@@ -217,7 +219,7 @@ const createStyles = (colors: ThemeColors) =>
       paddingRight: spacing.xs,
     },
     cellValue: {
-      fontSize: 22,
+      fontSize: 18,
       fontWeight: '700',
       color: colors.text,
       letterSpacing: -0.3,
@@ -227,7 +229,7 @@ const createStyles = (colors: ThemeColors) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.md,
-      paddingVertical: spacing.sm,
+      paddingVertical: spacing.xs + 2,
     },
     rowLabel: {
       flex: 1,

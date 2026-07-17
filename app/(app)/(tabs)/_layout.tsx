@@ -31,7 +31,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'My Tours',
-          tabBarIcon: tabIcon('musical-notes', 'musical-notes-outline'),
+          tabBarIcon: tabIcon('map', 'map-outline'),
         }}
       />
       <Tabs.Screen

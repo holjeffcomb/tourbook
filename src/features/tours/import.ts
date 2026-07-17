@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { createTour } from '@/features/tours/api';
 import { createShow } from '@/features/shows/api';
+import { findCatalogVenue } from '@/features/venues/api';
 import { getErrorMessage } from '@/lib/errors';
-import { geocodeVenue, type VenueMatchConfidence } from '@/lib/mapbox';
+import { geocodeAddress, geocodeVenue, type VenueMatchConfidence } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
 
 const parsedStopSchema = z.object({
@@ -22,6 +23,12 @@ export type ParsedTour = z.infer<typeof parsedTourSchema>;
 
 export type { VenueMatchConfidence };
 
+/**
+ * Where a resolved match came from: your saved venues, a Mapbox venue-name
+ * lookup, a manual address lookup, or nothing.
+ */
+export type VenueMatchSource = 'catalog' | 'mapbox' | 'address' | 'none';
+
 export type ResolvedImportStop = {
   venueName: string;
   city: string;
@@ -31,6 +38,12 @@ export type ResolvedImportStop = {
   longitude: number | null;
   confidence: VenueMatchConfidence;
   mapboxPlace: string | null;
+  /** Which source produced the match — drives the review badge. */
+  source: VenueMatchSource;
+  /** Set only for catalog matches, so the show reuses that exact venue row. */
+  venueId: string | null;
+  /** Business name Mapbox lists at a resolved address (address source only). */
+  mapboxName?: string | null;
 };
 
 export async function resolveImportStop(
@@ -51,6 +64,26 @@ export async function resolveImportStop(
       longitude: null,
       confidence: 'unresolved',
       mapboxPlace: null,
+      source: 'none',
+      venueId: null,
+    };
+  }
+
+  // Trust your own catalog first: a venue you've used before is a confident
+  // match on your data, so reuse it (with its coordinates) and skip Mapbox.
+  const catalogMatch = await findCatalogVenue(name, requestedCity).catch(() => null);
+  if (catalogMatch) {
+    return {
+      venueName: catalogMatch.name || name,
+      city: requestedCity,
+      country: catalogMatch.country,
+      address: catalogMatch.address ?? address?.trim() ?? null,
+      latitude: catalogMatch.latitude,
+      longitude: catalogMatch.longitude,
+      confidence: 'confirmed',
+      mapboxPlace: catalogMatch.city,
+      source: 'catalog',
+      venueId: catalogMatch.id,
     };
   }
 
@@ -65,6 +98,8 @@ export async function resolveImportStop(
       longitude: null,
       confidence: 'unresolved',
       mapboxPlace: null,
+      source: 'none',
+      venueId: null,
     };
   }
 
@@ -77,6 +112,55 @@ export async function resolveImportStop(
     longitude: geo.longitude,
     confidence: geo.confidence,
     mapboxPlace: geo.mapboxPlace,
+    source: 'mapbox',
+    venueId: null,
+  };
+}
+
+/**
+ * Manual fallback for a stop whose venue name won't geocode: resolve a street
+ * address straight to coordinates and surface the business name Mapbox lists
+ * there (so foreign-language names can be reconciled). Never touches the venue
+ * name — the caller decides whether to adopt the returned `mapboxName`.
+ */
+export async function resolveImportStopByAddress(
+  address: string,
+  city: string,
+): Promise<ResolvedImportStop> {
+  const requestedCity = city.trim();
+  const street = address.trim();
+
+  const unresolved: ResolvedImportStop = {
+    venueName: '',
+    city: requestedCity,
+    country: null,
+    address: street || null,
+    latitude: null,
+    longitude: null,
+    confidence: 'unresolved',
+    mapboxPlace: null,
+    source: 'none',
+    venueId: null,
+    mapboxName: null,
+  };
+
+  if (!street || !requestedCity) return unresolved;
+
+  const geo = await geocodeAddress(street, requestedCity).catch(() => null);
+  if (!geo) return unresolved;
+
+  return {
+    venueName: '',
+    city: requestedCity,
+    country: geo.country,
+    address: geo.address ?? street,
+    latitude: geo.latitude,
+    longitude: geo.longitude,
+    confidence: 'confirmed',
+    mapboxPlace: geo.mapboxPlace,
+    source: 'address',
+    venueId: null,
+    mapboxName: geo.name,
   };
 }
 
@@ -130,6 +214,9 @@ export type ImportStop = {
   latitude?: number | null;
   longitude?: number | null;
   confidence?: VenueMatchConfidence;
+  // Set when the stop matched a saved catalog venue, so the show reuses that
+  // exact row instead of re-deduping by name+city.
+  venueId?: string | null;
 };
 
 export type CreateImportedTourInput = {
@@ -162,6 +249,7 @@ export async function createImportedTour(
     let longitude = stop.longitude ?? null;
     let address = stop.address?.trim() || null;
     let country = stop.country ?? null;
+    let venueId = stop.venueId ?? null;
 
     const hasConfirmedCoords =
       stop.confidence === 'confirmed' && latitude != null && longitude != null;
@@ -171,6 +259,7 @@ export async function createImportedTour(
       venueName = resolved.venueName;
       address = resolved.address;
       country = resolved.country ?? country;
+      venueId = resolved.venueId;
       if (resolved.confidence === 'confirmed') {
         latitude = resolved.latitude;
         longitude = resolved.longitude;
@@ -185,6 +274,7 @@ export async function createImportedTour(
       tourId: id,
       date: stop.date,
       venueName,
+      venueId,
       venueCity: requestedCity,
       venueCountry: country,
       latitude,

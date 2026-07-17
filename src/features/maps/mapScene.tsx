@@ -139,6 +139,8 @@ export type MapScene = {
   onSelectPlace?: (id: string | null) => void;
   /** Fired when a numbered tour stop marker is tapped (tour detail). */
   onSelectStop?: (id: string) => void;
+  /** Fired when a custom pin (you / them / venue) is tapped. */
+  onSelectMarker?: (marker: SceneMarker) => void;
   /** Fired when the user taps empty map (not a marker) — clear floating panes. */
   onPressMapBackground?: () => void;
   /**

@@ -518,7 +518,10 @@ export function TourDetailScreen() {
           ? () =>
               router.push({
                 pathname: '/venues/[id]',
-                params: { id: selectedStop.venueId as string },
+                params: {
+                  id: selectedStop.venueId as string,
+                  backLabel: tour?.act.name ?? 'Tour',
+                },
               })
           : undefined
       }

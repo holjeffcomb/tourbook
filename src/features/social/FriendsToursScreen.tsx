@@ -54,7 +54,7 @@ function TourRow({
       <View style={[styles.accent, { backgroundColor: color }]} />
       <View style={styles.thumb}>
         {/* Placeholder until tours carry image thumbnails. */}
-        <Icon name="musical-notes" size={22} color="textMuted" />
+        <Icon name="map" size={22} color="textMuted" />
       </View>
       <View style={styles.rowBody}>
         <Text variant="subheading" numberOfLines={1}>

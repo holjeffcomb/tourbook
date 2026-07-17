@@ -16,7 +16,9 @@ export function VenueDetailScreen() {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `backLabel` names the screen we came from so the back button reflects where
+  // it actually returns to (e.g. "On Tour"); defaults to a generic "Back".
+  const { id, backLabel } = useLocalSearchParams<{ id: string; backLabel?: string }>();
   const router = useRouter();
   const { session } = useAuth();
   const venueQuery = useVenue(id);
@@ -57,6 +59,7 @@ export function VenueDetailScreen() {
     <MapScreenScaffold
       scene={scene}
       onBack={() => router.back()}
+      backLabel={backLabel || 'Back'}
       topInset={insets.top}
       sheetHeader={sheetHeader}
     >

@@ -340,6 +340,10 @@ function padCenter(
   return [centerXNorm * 360 - 180, normYToLat(centerYNorm)];
 }
 
+// Switching between map pages (tabs / detail screens) uses a long flyTo so the
+// world glides instead of snapping. In-page reframes keep each scene's own timing.
+const PAGE_GLIDE = { durationMs: 2800, mode: 'flyTo' as const };
+
 /**
  * The single, persistent map for the whole authenticated app. It renders on top
  * of the navigator (so it stays pan/zoom interactive) whatever the focused
@@ -520,6 +524,7 @@ export function MapStage() {
   const bottomInset = Math.round(insets.bottom);
   const didInit = useRef(false);
   const framedForRef = useRef<{ key: string; bottom: number } | null>(null);
+  const framedSceneKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!framing || !mapReady) return;
     // A bounds fit needs the map's pixel size; a single point doesn't.
@@ -557,9 +562,28 @@ export function MapStage() {
       zoom = fitted.zoom;
       center = framing.center ? padCenter(framing.center, zoom, pad) : fitted.center;
     }
-    const duration = didInit.current ? (scene?.focusDurationMs ?? 700) : 0;
-    const animationMode = didInit.current ? (scene?.focusAnimationMode ?? 'easeTo') : 'moveTo';
+
+    const sceneKey = scene?.key ?? '';
+    const isPageSwitch =
+      didInit.current &&
+      framedSceneKeyRef.current != null &&
+      framedSceneKeyRef.current !== sceneKey;
+
+    let duration: number;
+    let animationMode: 'flyTo' | 'easeTo' | 'linearTo' | 'moveTo';
+    if (!didInit.current) {
+      duration = 0;
+      animationMode = 'moveTo';
+    } else if (isPageSwitch) {
+      duration = PAGE_GLIDE.durationMs;
+      animationMode = PAGE_GLIDE.mode;
+    } else {
+      duration = scene?.focusDurationMs ?? 700;
+      animationMode = scene?.focusAnimationMode ?? 'easeTo';
+    }
+
     didInit.current = true;
+    framedSceneKeyRef.current = sceneKey;
     framedForRef.current = { key: frameKey, bottom: bottomInset };
     lastCameraRef.current = { center, zoom };
     cameraRef.current?.setCamera({
@@ -940,7 +964,12 @@ export function MapStage() {
             )}
 
             {pinMarkers.map((marker) => (
-              <PointAnnotation key={marker.id} id={marker.id} coordinate={marker.coordinate}>
+              <PointAnnotation
+                key={marker.id}
+                id={marker.id}
+                coordinate={marker.coordinate}
+                onSelected={() => scene?.onSelectMarker?.(marker)}
+              >
                 <MarkerView marker={marker} styles={styles} />
               </PointAnnotation>
             ))}

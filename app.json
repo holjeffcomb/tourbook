@@ -30,7 +30,13 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Tourbook uses your location to keep you and your tour's venue in view while you're on the road."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

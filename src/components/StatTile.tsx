@@ -13,10 +13,10 @@ export function StatTile({ label, value, detail }: Props) {
   const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.tile}>
-      <Text variant="title" style={styles.value}>
+      <Text variant="heading" style={styles.value}>
         {value}
       </Text>
-      <Text variant="caption" color="textMuted">
+      <Text variant="label" color="textMuted">
         {label}
       </Text>
       {!!detail && (
@@ -34,13 +34,15 @@ const createStyles = (colors: ThemeColors) =>
       flex: 1,
       minWidth: '45%',
       gap: 2,
-      padding: spacing.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm + 2,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radius.md,
       backgroundColor: colors.surface,
     },
     value: {
-      fontSize: 24,
+      fontSize: 20,
+      letterSpacing: -0.3,
     },
   });

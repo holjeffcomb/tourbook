@@ -15,7 +15,11 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import { BottomSheet, type BottomSheetHandle } from '@/components/BottomSheet';
+import {
+  BottomSheet,
+  BOTTOM_SHEET_INSET,
+  type BottomSheetHandle,
+} from '@/components/BottomSheet';
 import { Icon, type IconName } from '@/components/Icon';
 import { Text } from '@/components/Text';
 import type { MapStyleVariant } from '@/features/maps/mapConfig';
@@ -111,7 +115,8 @@ export function LifetimeMapExperience({
   // Frame the map above whichever snap the sheet rests on — but never let the
   // fully-expanded sheet crush the camera into a sliver; cap the reserved space.
   const bottomInsetForSnap = useCallback(
-    (snapHeight: number) => Math.min(snapHeight, Math.round(size.height * 0.5)),
+    (snapHeight: number) =>
+      Math.min(snapHeight + BOTTOM_SHEET_INSET, Math.round(size.height * 0.5)),
     [size.height],
   );
 
@@ -333,7 +338,11 @@ function MapStyleToggle({
       style={[
         styles.toggle,
         styles.toggleLeft,
-        { transform: [{ translateY: -(restingHeight + spacing.sm) }] },
+        {
+          transform: [
+            { translateY: -(restingHeight + BOTTOM_SHEET_INSET + spacing.sm) },
+          ],
+        },
         animatedStyle,
       ]}
       pointerEvents={hidden ? 'none' : 'box-none'}
@@ -381,7 +390,11 @@ function MapModeToggle({
       style={[
         styles.toggle,
         styles.toggleRight,
-        { transform: [{ translateY: -(restingHeight + spacing.sm) }] },
+        {
+          transform: [
+            { translateY: -(restingHeight + BOTTOM_SHEET_INSET + spacing.sm) },
+          ],
+        },
         animatedStyle,
       ]}
       pointerEvents={hidden ? 'none' : 'box-none'}
