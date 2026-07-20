@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { pickActiveTour } from '@/features/tours/tourMode';
 import { dateToISO } from '@/lib/date';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   createTour,
   deleteTour,
@@ -24,11 +25,11 @@ import {
   type ParsedTour,
 } from '@/features/tours/import';
 
-export const toursKey = ['tours'] as const;
-export const tourKey = (id: string) => ['tours', id] as const;
-export const membershipKey = (tourId: string) => ['tours', tourId, 'membership'] as const;
-export const membersKey = (tourId: string) => ['tours', tourId, 'members'] as const;
-export const tourSearchKey = (actId: string) => ['tours', 'search', actId] as const;
+export const toursKey = queryKeys.tours.all;
+export const tourKey = queryKeys.tours.detail;
+export const membershipKey = queryKeys.tours.membership;
+export const membersKey = queryKeys.tours.members;
+export const tourSearchKey = queryKeys.tours.searchByAct;
 
 export function useTours() {
   const { session } = useAuth();
@@ -151,7 +152,15 @@ export function useDeleteTour() {
 
   return useMutation({
     mutationFn: (tourId: string) => deleteTour(tourId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
+    // The tour and its stops/members are gone (ON DELETE CASCADE), so drop their
+    // cache entries too, not just the list.
+    onSuccess: (_data, tourId) => {
+      queryClient.invalidateQueries({ queryKey: toursKey });
+      queryClient.invalidateQueries({ queryKey: tourKey(tourId) });
+      queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
+      queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.shows.list(tourId) });
+    },
   });
 }
 

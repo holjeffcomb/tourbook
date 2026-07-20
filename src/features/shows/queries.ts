@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   createOffDay,
   createShow,
@@ -14,8 +15,8 @@ import {
   type UpdateShowInput,
 } from '@/features/shows/api';
 
-export const showsKey = (tourId: string) => ['shows', tourId] as const;
-export const showKey = (showId: string) => ['show', showId] as const;
+export const showsKey = queryKeys.shows.list;
+export const showKey = queryKeys.shows.detail;
 
 export function useStops(tourId: string) {
   return useQuery({
@@ -94,6 +95,9 @@ export function useDeleteStop(tourId: string) {
 
   return useMutation({
     mutationFn: (stopId: string) => deleteStop(stopId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+    onSuccess: (_data, stopId) => {
+      queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
+      queryClient.invalidateQueries({ queryKey: showKey(stopId) });
+    },
   });
 }

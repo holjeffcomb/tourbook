@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { Icon } from '@/components/Icon';
+import { QueryBoundary } from '@/components/QueryBoundary';
 import { Text } from '@/components/Text';
 import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
 import { TAB_BAR_HEIGHT, type MapScene } from '@/features/maps/mapScene';
@@ -147,41 +148,40 @@ export function FriendsToursScreen() {
           </Pressable>
         )}
 
-        {isLoading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        ) : isError ? (
-          <View style={styles.center}>
-            <Text color="danger">Couldn&apos;t load friends&apos; tours.</Text>
-            <Button title="Retry" variant="secondary" onPress={() => refetch()} />
-          </View>
-        ) : friendCount === 0 ? (
-          <View style={styles.center}>
-            <Text variant="heading">No friends yet</Text>
-            <Text color="textMuted" style={styles.emptyHint}>
-              Add friends to see the tours they&apos;re on.
-            </Text>
-            <Button title="Find people" onPress={() => router.push('/people')} />
-          </View>
-        ) : upcoming.length === 0 ? (
-          <View style={styles.center}>
-            <Text variant="heading">No upcoming tours</Text>
-            <Text color="textMuted" style={styles.emptyHint}>
-              When friends join tours you can see, they&apos;ll show up here.
-            </Text>
-          </View>
-        ) : (
-          upcoming.map((entry, index) => (
-            <TourRow
-              key={entry.id}
-              entry={entry}
-              color={routeColorAt(index)}
-              alsoOnTour={myTourIds.has(entry.id)}
-              onPress={() => router.push({ pathname: '/tours/[id]', params: { id: entry.id } })}
-            />
-          ))
-        )}
+        <QueryBoundary
+          isLoading={isLoading}
+          isError={isError}
+          errorMessage="Couldn't load friends' tours."
+          onRetry={() => refetch()}
+          containerStyle={styles.center}
+        >
+          {friendCount === 0 ? (
+            <View style={styles.center}>
+              <Text variant="heading">No friends yet</Text>
+              <Text color="textMuted" style={styles.emptyHint}>
+                Add friends to see the tours they&apos;re on.
+              </Text>
+              <Button title="Find people" onPress={() => router.push('/people')} />
+            </View>
+          ) : upcoming.length === 0 ? (
+            <View style={styles.center}>
+              <Text variant="heading">No upcoming tours</Text>
+              <Text color="textMuted" style={styles.emptyHint}>
+                When friends join tours you can see, they&apos;ll show up here.
+              </Text>
+            </View>
+          ) : (
+            upcoming.map((entry, index) => (
+              <TourRow
+                key={entry.id}
+                entry={entry}
+                color={routeColorAt(index)}
+                alsoOnTour={myTourIds.has(entry.id)}
+                onPress={() => router.push({ pathname: '/tours/[id]', params: { id: entry.id } })}
+              />
+            ))
+          )}
+        </QueryBoundary>
       </ScrollView>
     </MapScreenScaffold>
   );

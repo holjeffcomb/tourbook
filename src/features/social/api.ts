@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { listMemberTours } from '@/features/tours/api';
 import type { Profile } from '@/features/profile/api';
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
@@ -162,31 +163,6 @@ export async function unfriend(friendshipId: string, userId: string): Promise<vo
 }
 
 /** Tours the viewer can see for another user (RLS-filtered memberships). */
-export async function listVisibleToursForUser(userId: string) {
-  const { data, error } = await supabase
-    .from('tour_members')
-    .select(
-      'role, tour:tours(id, title, start_date, end_date, visibility, created_at, created_by, act:acts(id, name))',
-    )
-    .eq('user_id', userId);
-  if (error) throw error;
-
-  type Row = {
-    role: string | null;
-    tour: {
-      id: string;
-      title: string | null;
-      start_date: string | null;
-      end_date: string | null;
-      visibility: string;
-      created_at: string;
-      created_by: string | null;
-      act: { id: string; name: string };
-    } | null;
-  };
-
-  return ((data ?? []) as unknown as Row[])
-    .filter((row) => row.tour)
-    .map((row) => ({ ...row.tour!, myRole: row.role }))
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+export function listVisibleToursForUser(userId: string) {
+  return listMemberTours(userId);
 }

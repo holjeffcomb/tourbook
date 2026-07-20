@@ -134,6 +134,7 @@ export type Database = {
         Row: {
           address: string | null
           city: string | null
+          country: string | null
           created_at: string
           created_by: string | null
           date: string
@@ -149,6 +150,7 @@ export type Database = {
         Insert: {
           address?: string | null
           city?: string | null
+          country?: string | null
           created_at?: string
           created_by?: string | null
           date: string
@@ -164,6 +166,7 @@ export type Database = {
         Update: {
           address?: string | null
           city?: string | null
+          country?: string | null
           created_at?: string
           created_by?: string | null
           date?: string
@@ -337,6 +340,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      dedup_venues: {
+        Args: {
+          radius_m?: number
+          max_km?: number
+        }
+        Returns: number
+      }
       find_nearby_venue: {
         Args: {
           lat: number
@@ -362,6 +372,12 @@ export type Database = {
       merge_duplicate_venues: {
         Args: {
           radius_m?: number
+        }
+        Returns: number
+      }
+      merge_duplicate_venues_by_name: {
+        Args: {
+          max_km?: number
         }
         Returns: number
       }

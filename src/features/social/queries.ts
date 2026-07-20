@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   acceptFriendRequest,
   areFriends,
@@ -13,15 +14,15 @@ import {
   unfriend,
 } from '@/features/social/api';
 
-export const friendsKey = (userId: string) => ['friends', userId] as const;
-export const pendingFriendsKey = (userId: string) => ['friends', userId, 'pending'] as const;
-export const friendshipKey = (a: string, b: string) => ['friendship', a, b] as const;
-export const visibleToursKey = (userId: string) => ['profile', userId, 'visible-tours'] as const;
+export const friendsKey = queryKeys.friends.list;
+export const pendingFriendsKey = queryKeys.friends.pending;
+export const friendshipKey = queryKeys.friendship.between;
+export const visibleToursKey = queryKeys.profiles.visibleTours;
 
 function invalidateSocial(queryClient: ReturnType<typeof useQueryClient>, userId: string) {
   queryClient.invalidateQueries({ queryKey: friendsKey(userId) });
   queryClient.invalidateQueries({ queryKey: pendingFriendsKey(userId) });
-  queryClient.invalidateQueries({ queryKey: ['friendship'] });
+  queryClient.invalidateQueries({ queryKey: queryKeys.friendship.all });
 }
 
 export function useFriends() {
@@ -62,7 +63,7 @@ export function useAreFriends(otherUserId: string) {
   const userId = session?.user.id;
 
   return useQuery({
-    queryKey: [...friendshipKey(userId ?? 'anonymous', otherUserId), 'rpc'],
+    queryKey: queryKeys.friendship.areFriends(userId ?? 'anonymous', otherUserId),
     queryFn: () => areFriends(userId as string, otherUserId),
     enabled: !!userId && !!otherUserId && userId !== otherUserId,
   });

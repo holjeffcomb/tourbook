@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useFriends } from '@/features/social/queries';
 import { getVenue, listVenuePlayers, searchVenues } from '@/features/venues/api';
 import { isMapboxConfigured, searchPlaces } from '@/lib/mapbox';
+import { queryKeys } from '@/lib/queryKeys';
 
 /**
  * Suggestions from our own venue catalog (venues other users have already logged).
@@ -12,7 +13,7 @@ export function useVenueSuggestions(term: string, cityBias?: string, enabled = t
   const city = cityBias?.trim() ?? '';
 
   return useQuery({
-    queryKey: ['venues', 'search', q, city],
+    queryKey: queryKeys.venues.search(q, city),
     queryFn: () => searchVenues(q, city || undefined),
     enabled: enabled && q.length >= 2,
     staleTime: 30_000,
@@ -30,7 +31,7 @@ export function usePlaceSuggestions(
   const cityPart = city?.trim() ?? '';
 
   return useQuery({
-    queryKey: ['places', 'search', term, cityPart],
+    queryKey: queryKeys.places.search(term, cityPart),
     queryFn: () => searchPlaces(term, sessionToken, cityPart || undefined),
     enabled: enabled && term.length >= 2 && isMapboxConfigured(),
     // Don't stick on empty typeahead misses for complete venue names.
@@ -41,7 +42,7 @@ export function usePlaceSuggestions(
 
 export function useVenue(id: string) {
   return useQuery({
-    queryKey: ['venues', id],
+    queryKey: queryKeys.venues.detail(id),
     queryFn: () => getVenue(id),
     enabled: !!id,
   });
@@ -52,7 +53,7 @@ export function useVenuePlayers(venueId: string) {
   const friendIds = new Set((friendsQuery.data ?? []).map((f) => f.other.id));
 
   return useQuery({
-    queryKey: ['venues', venueId, 'players', [...friendIds].sort().join(',')],
+    queryKey: queryKeys.venues.players(venueId, [...friendIds].sort().join(',')),
     queryFn: () => listVenuePlayers(venueId, friendIds),
     enabled: !!venueId,
   });

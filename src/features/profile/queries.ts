@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   getProfile,
   listPublicToursForUser,
@@ -8,9 +9,9 @@ import {
   type ProfileUpdate,
 } from '@/features/profile/api';
 
-export const profileKey = (userId: string) => ['profile', userId] as const;
-export const profileSearchKey = (term: string) => ['profiles', 'search', term] as const;
-export const publicToursKey = (userId: string) => ['profile', userId, 'public-tours'] as const;
+export const profileKey = queryKeys.profiles.detail;
+export const profileSearchKey = queryKeys.profiles.search;
+export const publicToursKey = queryKeys.profiles.publicTours;
 
 export function useProfile(userId?: string) {
   const { session } = useAuth();

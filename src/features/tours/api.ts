@@ -20,21 +20,34 @@ export type MyTour = TourWithAct & { myRole: string | null };
 
 export type TourMembership = { id: string; role: string | null };
 
-const tourSelect =
+export const tourSelect =
   'id, title, start_date, end_date, visibility, created_at, created_by, act:acts(id, name)';
 
-export async function listMyTours(userId: string): Promise<MyTour[]> {
+/**
+ * Loads the tours a user is a member of, annotated with their role. Used for the
+ * current user (all their tours) and for other users (RLS narrows the rows to
+ * what the viewer may see); `publicOnly` further restricts to public tours for
+ * public profiles. Single source of truth so the tour-list shape can't drift.
+ */
+export async function listMemberTours(
+  userId: string,
+  opts: { publicOnly?: boolean } = {},
+): Promise<MyTour[]> {
   const { data, error } = await supabase
     .from('tour_members')
     .select(`role, tour:tours(${tourSelect})`)
     .eq('user_id', userId);
   if (error) throw error;
 
-  const rows = (data ?? []) as unknown as { role: string | null; tour: TourWithAct }[];
+  const rows = (data ?? []) as unknown as { role: string | null; tour: TourWithAct | null }[];
   return rows
-    .filter((row) => row.tour)
-    .map((row) => ({ ...row.tour, myRole: row.role }))
+    .filter((row) => row.tour && (!opts.publicOnly || row.tour.visibility === 'public'))
+    .map((row) => ({ ...(row.tour as TourWithAct), myRole: row.role }))
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+}
+
+export function listMyTours(userId: string): Promise<MyTour[]> {
+  return listMemberTours(userId);
 }
 
 export async function getTour(id: string): Promise<TourWithAct> {

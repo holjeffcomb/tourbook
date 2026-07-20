@@ -1,17 +1,18 @@
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button } from '@/components/Button';
+import { QueryBoundary } from '@/components/QueryBoundary';
 import { Screen } from '@/components/Screen';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { Text } from '@/components/Text';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import { useFriends, useUnfriend } from '@/features/social/queries';
 import { useUpcomingCrossedPaths } from '@/features/social/useUpcomingCrossedPaths';
 import { radius, spacing, type ThemeColors } from '@/theme';
-import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 export function FriendsListScreen() {
   const styles = useThemedStyles(createStyles);
-  const colors = useColors();
   const router = useRouter();
   const friendsQuery = useFriends();
   const unfriend = useUnfriend();
@@ -19,13 +20,7 @@ export function FriendsListScreen() {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Text variant="body" color="primary" onPress={() => router.back()}>
-          Back
-        </Text>
-      </View>
-
-      <Text variant="title">Friends</Text>
+      <ScreenHeader title="Friends" />
 
       {crossedPaths.count > 0 && (
         <Pressable
@@ -43,23 +38,21 @@ export function FriendsListScreen() {
         </Pressable>
       )}
 
-      {friendsQuery.isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : friendsQuery.isError ? (
-        <View style={styles.center}>
-          <Text color="danger">Couldn&apos;t load friends.</Text>
-          <Button title="Retry" variant="secondary" onPress={() => friendsQuery.refetch()} />
-        </View>
-      ) : (friendsQuery.data?.length ?? 0) === 0 ? (
-        <View style={styles.center}>
-          <Text color="textMuted">No friends yet.</Text>
-          <Button title="Find people" onPress={() => router.push('/people')} />
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.list}>
-          {friendsQuery.data!.map((row) => {
+      <QueryBoundary
+        isLoading={friendsQuery.isLoading}
+        isError={friendsQuery.isError}
+        errorMessage="Couldn't load friends."
+        onRetry={() => friendsQuery.refetch()}
+        containerStyle={styles.center}
+      >
+        {(friendsQuery.data?.length ?? 0) === 0 ? (
+          <View style={styles.center}>
+            <Text color="textMuted">No friends yet.</Text>
+            <Button title="Find people" onPress={() => router.push('/people')} />
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.list}>
+            {friendsQuery.data!.map((row) => {
             const upcomingCount = crossedPaths.countByFriendId.get(row.other.id) ?? 0;
             return (
               <View key={row.id} style={styles.row}>
@@ -92,8 +85,9 @@ export function FriendsListScreen() {
               </View>
             );
           })}
-        </ScrollView>
-      )}
+          </ScrollView>
+        )}
+      </QueryBoundary>
     </Screen>
   );
 }

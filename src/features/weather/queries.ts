@@ -1,9 +1,10 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import type { Coord } from '@/features/maps/mapScene';
 import { fetchDayWeather, type DayWeather } from '@/features/weather/api';
+import { queryKeys } from '@/lib/queryKeys';
 
 const weatherKey = (coord: Coord | null, dateISO: string | null) =>
-  ['weather', coord?.[1] ?? null, coord?.[0] ?? null, dateISO] as const;
+  queryKeys.weather(coord?.[1] ?? null, coord?.[0] ?? null, dateISO);
 
 const weatherOptions = (coord: Coord | null, dateISO: string | null) => ({
   queryKey: weatherKey(coord, dateISO),

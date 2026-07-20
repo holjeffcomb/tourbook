@@ -1,4 +1,4 @@
-import { backfillVenueCountries, getOrCreateVenue } from '@/features/venues/api';
+import { getOrCreateVenue } from '@/features/venues/api';
 import { geocodeVenue, reverseGeocodeCountry } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
 
@@ -25,7 +25,7 @@ export type ShowVenue = {
 export type StopLocation = {
   name: string;
   city: string;
-  /** Present when geocoded / backfilled; omitted on older or city-only stops. */
+  /** Stored at write time (venue row for booked stops, the stop row otherwise). */
   country?: string | null;
   address: string | null;
   latitude: number | null;
@@ -45,7 +45,7 @@ export type TourStop = {
 };
 
 const stopSelect =
-  'id, date, kind, label, city, latitude, longitude, address, created_at, created_by, venue:venues(id, name, city, country, latitude, longitude)';
+  'id, date, kind, label, city, country, latitude, longitude, address, created_at, created_by, venue:venues(id, name, city, country, latitude, longitude)';
 
 type StopRow = {
   id: string;
@@ -53,6 +53,7 @@ type StopRow = {
   kind: StopKind;
   label: string | null;
   city: string | null;
+  country: string | null;
   latitude: number | null;
   longitude: number | null;
   address: string | null;
@@ -78,7 +79,7 @@ function toStop(row: StopRow): TourStop {
     location = {
       name: row.label || fallback,
       city: row.city ?? '',
-      country: null,
+      country: row.country,
       address: row.address,
       latitude: row.latitude,
       longitude: row.longitude,
@@ -105,42 +106,10 @@ export async function listStops(tourId: string): Promise<TourStop[]> {
     .eq('tour_id', tourId)
     .order('date', { ascending: true });
   if (error) throw error;
-  const stops = ((data ?? []) as unknown as StopRow[]).map(toStop);
-
-  // Euro (and other) tours often store bare city names with null venue.country.
-  // Reverse-geocode those so the countries stat is accurate on first load.
-  const venueRows = stops
-    .filter((s) => s.venueId && s.location)
-    .map((s) => ({
-      id: s.venueId as string,
-      country: s.location!.country ?? null,
-      latitude: s.location!.latitude,
-      longitude: s.location!.longitude,
-    }));
-  const filled = await backfillVenueCountries(venueRows);
-  if (filled.size > 0) {
-    for (const stop of stops) {
-      if (!stop.venueId || !stop.location) continue;
-      const country = filled.get(stop.venueId);
-      if (country) stop.location.country = country;
-    }
-  }
-
-  // City-only / TBD stops: no venue row to persist, but we can still resolve a
-  // country from coordinates for this response so tour stats count them.
-  await Promise.all(
-    stops.map(async (stop) => {
-      if (!stop.location || stop.location.country || stop.location.latitude == null) return;
-      if (stop.location.longitude == null) return;
-      const country = await reverseGeocodeCountry(
-        stop.location.longitude,
-        stop.location.latitude,
-      );
-      if (country) stop.location.country = country;
-    }),
-  );
-
-  return stops;
+  // Countries are resolved and stored at write time (see resolveShowLocation /
+  // resolveOffLocation / getOrCreateVenue), so this read path is pure data — no
+  // geocoding.
+  return ((data ?? []) as unknown as StopRow[]).map(toStop);
 }
 
 export type StopDetail = {
@@ -197,9 +166,10 @@ export type CreateShowInput = VenueFields & {
 async function resolveShowLocation(input: VenueFields & { userId: string }) {
   const name = input.venueName?.trim();
   if (name) {
-    // The user picked an existing catalog venue — reuse that exact row.
+    // The user picked an existing catalog venue — reuse that exact row. The
+    // country lives on the venue row, so the stop itself carries none.
     if (input.venueId) {
-      return { venue_id: input.venueId, city: null, latitude: null, longitude: null, address: null };
+      return { venue_id: input.venueId, city: null, country: null, latitude: null, longitude: null, address: null };
     }
     const venueId = await getOrCreateVenue({
       name,
@@ -210,15 +180,17 @@ async function resolveShowLocation(input: VenueFields & { userId: string }) {
       address: input.address,
       country: input.venueCountry,
     });
-    return { venue_id: venueId, city: null, latitude: null, longitude: null, address: null };
+    return { venue_id: venueId, city: null, country: null, latitude: null, longitude: null, address: null };
   }
 
-  // No venue yet: geocode the known city so there's still a pin. Best-effort.
+  // No venue yet: geocode the known city so there's still a pin, and persist the
+  // country so the read path never has to. Best-effort.
   const geo = await geocodeVenue(input.venueCity, '').catch(() => null);
   const hasCoords = geo?.confidence === 'confirmed';
   return {
     venue_id: null as string | null,
     city: input.venueCity.trim(),
+    country: geo?.country ?? null,
     latitude: hasCoords ? (geo?.latitude ?? null) : null,
     longitude: hasCoords ? (geo?.longitude ?? null) : null,
     address: null,
@@ -285,6 +257,7 @@ async function resolveOffLocation(input: OffDayFields) {
   const city = input.city?.trim() || null;
   let latitude = input.latitude ?? null;
   let longitude = input.longitude ?? null;
+  let country: string | null = null;
 
   if ((latitude == null || longitude == null) && city) {
     const geo = await geocodeVenue(city, '').catch(() => null);
@@ -292,11 +265,19 @@ async function resolveOffLocation(input: OffDayFields) {
       latitude = geo.latitude;
       longitude = geo.longitude;
     }
+    country = geo?.country ?? null;
+  }
+
+  // A picked place gives coordinates but no country; resolve it once here so the
+  // countries stat has it without a read-time geocode.
+  if (!country && latitude != null && longitude != null) {
+    country = await reverseGeocodeCountry(longitude, latitude).catch(() => null);
   }
 
   return {
     label: input.label?.trim() || null,
     city,
+    country,
     address: input.address?.trim() || null,
     latitude,
     longitude,

@@ -7,342 +7,47 @@ import {
   ShapeSource,
   StyleImport,
   SymbolLayer,
-  type CircleLayerStyle,
-  type LineLayerStyle,
-  type SymbolLayerStyle,
 } from '@rnmapbox/maps';
-import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
+import type { Feature, Point } from 'geojson';
 import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactElement } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Text } from '@/components/Text';
-import { arcedPath, trimmedOverviewFrame } from '@/lib/geo';
-import { radius, spacing, type ThemeColors } from '@/theme';
+import { type ThemeColors } from '@/theme';
 import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
-import { expr, isMapboxConfigured, resolveMapStyle, type MapStyleVariant } from './mapConfig';
 import {
-  useActiveMapEntry,
-  type Coord,
-  type MapScene,
-  type SceneMarker,
-} from './mapScene';
-
-// Baked-in tuning for the clustered places / routes overlays (previously the
-// Lifetime map's config). Kept as constants so the shared stage stays simple.
-const CLUSTER = { radius: 50, maxZoom: 12 };
-const POINTS = {
-  // Radius also scales with camera zoom (see buildPointStyle) so the map stays
-  // calm when zoomed out and more tactile up close.
-  minRadius: 6,
-  maxRadius: 18,
-  maxWeight: 8,
-  opacity: 0.9,
-  strokeWidth: 1.5,
-  zoomOut: 3,
-  zoomIn: 12,
-  zoomOutScale: 0.45,
-  zoomInScale: 1.15,
-};
-// Route dots grow with zoom; hairline far out, comfortably tappable up close.
-const ROUTE = {
-  lineWidth: 0.75,
-  lineOpacity: 0.5,
-  // Light cream + thin dark border on Standard basemaps. Slightly thicker than
-  // Default so legs stay readable at continent zoom; still a hairline up close.
-  vividCore: '#F3E2C0',
-  vividLineWidth: 1.35,
-  vividLineOpacity: 1,
-  vividCasingExtra: 1.25,
-  vividCasingOpacity: 0.9,
-  vividCasing: '#1A1520',
-  vividDotStroke: '#1A1520',
-  dotRadiusOut: 2,
-  dotRadiusIn: 6.5,
-  zoomOut: 3,
-  zoomIn: 12,
-  arcCurvature: 0.2,
-  arcSegments: 24,
-};
-
-/** Standard dusk/night/satellite — busy, colourful basemaps that need louder overlays. */
-function isVividBasemap(variant: MapStyleVariant): boolean {
-  return variant === 'dusk' || variant === 'night' || variant === 'satellite';
-}
-const PLACE_LABEL_MIN_ZOOM = 8.5;
-const FALLBACK_CAMERA = { centerCoordinate: [-98.5, 39.8] as Coord, zoomLevel: 2.5 };
-const CLUSTER_PROPERTIES = { totalVisits: ['+', ['get', 'weight']] };
-
-// ---- Style builders (ported from the Lifetime map) ------------------------
-
-function buildClusterStyle(colors: ThemeColors): CircleLayerStyle {
-  return {
-    circleColor: colors.primary,
-    circleRadius: expr(['step', ['get', 'point_count'], 16, 5, 20, 15, 26]),
-    circleStrokeColor: colors.surface,
-    circleStrokeWidth: 2,
-    circleOpacity: 0.95,
-  };
-}
-
-/** Weight-based radius expression, scaled for a given zoom factor. */
-function weightRadiusAtZoom(zoomScale: number, pad = 0): unknown[] {
-  return [
-    'interpolate',
-    ['linear'],
-    ['get', 'weight'],
-    1,
-    POINTS.minRadius * zoomScale + pad,
-    POINTS.maxWeight,
-    POINTS.maxRadius * zoomScale + pad,
-  ];
-}
-
-function buildPointStyle(colors: ThemeColors): CircleLayerStyle {
-  return {
-    circleRadius: expr([
-      'interpolate',
-      ['linear'],
-      ['zoom'],
-      POINTS.zoomOut,
-      weightRadiusAtZoom(POINTS.zoomOutScale),
-      POINTS.zoomIn,
-      weightRadiusAtZoom(POINTS.zoomInScale),
-    ]),
-    circleColor: colors.primary,
-    circleOpacity: POINTS.opacity,
-    circleStrokeColor: colors.surface,
-    circleStrokeWidth: POINTS.strokeWidth,
-  };
-}
-
-function buildCountStyle(colors: ThemeColors, field: 'totalVisits' | 'weight'): SymbolLayerStyle {
-  return {
-    textField: expr(['to-string', ['get', field]]),
-    textSize: 12,
-    textColor: colors.onPrimary,
-    textAllowOverlap: true,
-    textIgnorePlacement: true,
-  };
-}
-
-function buildSelectedStyle(colors: ThemeColors): CircleLayerStyle {
-  return {
-    circleRadius: expr([
-      'interpolate',
-      ['linear'],
-      ['zoom'],
-      POINTS.zoomOut,
-      weightRadiusAtZoom(POINTS.zoomOutScale, 3),
-      POINTS.zoomIn,
-      weightRadiusAtZoom(POINTS.zoomInScale, 4),
-    ]),
-    circleColor: 'rgba(0,0,0,0)',
-    circleStrokeColor: colors.accent,
-    circleStrokeWidth: 3,
-  };
-}
-
-/**
- * One stable LineLayer for every route. Colour / width come from feature
- * properties so adding or removing tours only updates the GeoJSON source —
- * never mounts/unmounts per-route layers (which races Mapbox with
- * "Layer X is not in style").
- */
-function buildRouteLineStyle(colors: ThemeColors, vivid: boolean): LineLayerStyle {
-  return {
-    lineColor: expr([
-      'case',
-      ['has', 'color'],
-      ['get', 'color'],
-      vivid ? ROUTE.vividCore : colors.accent,
-    ]),
-    lineWidth: expr([
-      'case',
-      ['has', 'color'],
-      vivid ? ROUTE.vividLineWidth : 1,
-      vivid ? ROUTE.vividLineWidth : ROUTE.lineWidth,
-    ]),
-    lineOpacity: expr([
-      'case',
-      ['has', 'color'],
-      vivid ? 0.95 : 0.5,
-      vivid ? ROUTE.vividLineOpacity : ROUTE.lineOpacity,
-    ]),
-    lineCap: 'round',
-    lineJoin: 'round',
-    ...(vivid ? { lineEmissiveStrength: 1 } : null),
-  };
-}
-
-/** Thin dark border drawn *under* the cream core (middle slot vs top). */
-function buildRouteCasingStyle(): LineLayerStyle {
-  return {
-    lineColor: ROUTE.vividCasing,
-    lineWidth: ROUTE.vividLineWidth + ROUTE.vividCasingExtra,
-    lineOpacity: ROUTE.vividCasingOpacity,
-    lineCap: 'round',
-    lineJoin: 'round',
-    lineEmissiveStrength: 1,
-  };
-}
-
-function buildRouteDotStyle(colors: ThemeColors, vivid: boolean): CircleLayerStyle {
-  return {
-    circleRadius: expr([
-      'interpolate',
-      ['linear'],
-      ['zoom'],
-      ROUTE.zoomOut,
-      ROUTE.dotRadiusOut,
-      ROUTE.zoomIn,
-      ROUTE.dotRadiusIn,
-    ]),
-    circleColor: vivid ? ROUTE.vividCore : colors.accent,
-    circleOpacity: vivid ? 1 : 0.9,
-    circleStrokeColor: vivid ? ROUTE.vividDotStroke : colors.surface,
-    circleStrokeWidth: vivid ? 1.25 : 1,
-    ...(vivid ? { circleEmissiveStrength: 1 } : null),
-  };
-}
-
-/** City / venue name that fades in as you zoom toward a place. */
-function buildPlaceLabelStyle(colors: ThemeColors): SymbolLayerStyle {
-  return {
-    textField: expr(['get', 'title']),
-    textSize: 11,
-    textColor: colors.text,
-    textHaloColor: colors.surface,
-    textHaloWidth: 1.4,
-    textOffset: [0, 1.35],
-    textAnchor: 'top',
-    textMaxWidth: 10,
-    textOptional: true,
-    textAllowOverlap: false,
-    textIgnorePlacement: false,
-  };
-}
-
-// ---- Geometry helpers -----------------------------------------------------
-
-// Web-Mercator fit math. We compute the framing camera (center + zoom) ourselves
-// instead of handing `bounds` to Mapbox: on the new architecture `setCamera({bounds})`
-// only re-centers and keeps the current zoom (it never fits), so returning from a
-// zoomed-in screen would strand the camera zoomed-in on the bounds' midpoint.
-const TILE = 512;
-const FIT_MAX_ZOOM = 16;
-
-function lngToNormX(lng: number): number {
-  return (lng + 180) / 360;
-}
-
-function latToNormY(latDeg: number): number {
-  const lat = Math.max(Math.min(latDeg, 85.05112878), -85.05112878);
-  const r = (lat * Math.PI) / 180;
-  return 0.5 - Math.log(Math.tan(Math.PI / 4 + r / 2)) / (2 * Math.PI);
-}
-
-function normYToLat(y: number): number {
-  return (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI;
-}
-
-/**
- * Camera (center + zoom) that fits [sw, ne] inside `width`×`height` px while
- * honouring per-side padding, so the framed content is centred in the *unpadded*
- * region (e.g. above the bottom sheet). Mirrors Mapbox's own bounds fitting.
- */
-function fitCamera(
-  ne: Coord,
-  sw: Coord,
-  width: number,
-  height: number,
-  pad: { top: number; right: number; bottom: number; left: number },
-  maxZoom: number,
-): { center: Coord; zoom: number } {
-  const availW = Math.max(1, width - pad.left - pad.right);
-  const availH = Math.max(1, height - pad.top - pad.bottom);
-
-  let lngSpan = ne[0] - sw[0];
-  if (lngSpan < 0) lngSpan += 360;
-  const lngFraction = Math.max(1e-9, lngSpan / 360);
-  const latFraction = Math.max(1e-9, latToNormY(sw[1]) - latToNormY(ne[1]));
-
-  const zoomX = Math.log2(availW / (TILE * lngFraction));
-  const zoomY = Math.log2(availH / (TILE * latFraction));
-  let zoom = Math.min(zoomX, zoomY, maxZoom);
-  if (!Number.isFinite(zoom)) zoom = 2;
-  zoom = Math.max(0, zoom);
-
-  const worldSize = TILE * 2 ** zoom;
-  const bxNorm = (lngToNormX(sw[0]) + lngToNormX(ne[0])) / 2;
-  const byNorm = (latToNormY(ne[1]) + latToNormY(sw[1])) / 2;
-  // Shift the screen centre so the bounds sit centred within the padded region.
-  const centerXNorm = bxNorm + (pad.right - pad.left) / 2 / worldSize;
-  const centerYNorm = byNorm + (pad.bottom - pad.top) / 2 / worldSize;
-
-  return {
-    center: [centerXNorm * 360 - 180, normYToLat(centerYNorm)],
-    zoom,
-  };
-}
-
-function sceneCoords(scene: MapScene): Coord[] {
-  if (scene.focus && scene.focus.length > 0) return scene.focus;
-  const coords: Coord[] = [];
-  for (const p of scene.places ?? []) coords.push([p.longitude, p.latitude]);
-  for (const r of scene.routes ?? []) for (const c of r.coordinates) coords.push(c);
-  for (const m of scene.markers ?? []) coords.push(m.coordinate);
-  for (const g of scene.lines ?? []) for (const seg of g.segments) for (const c of seg) coords.push(c);
-  return coords;
-}
-
-/** Sparse samples along a polyline so densified routes don't dominate framing. */
-function sampleRouteCoords(coords: Coord[], maxPoints = 48): Coord[] {
-  if (coords.length <= maxPoints) return coords;
-  const out: Coord[] = [];
-  const step = (coords.length - 1) / (maxPoints - 1);
-  for (let i = 0; i < maxPoints; i += 1) {
-    out.push(coords[Math.round(i * step)]!);
-  }
-  return out;
-}
-
-/**
- * Coordinates used for camera fitting. Prefer discrete place pins when present
- * (cleaner than densified polylines); otherwise sparsely sample route geometry.
- */
-function framingCoords(
-  scene: MapScene,
-  routes: { coordinates: Coord[] }[],
-  showRoutes: boolean,
-): Coord[] {
-  if (scene.focus && scene.focus.length > 0) return scene.focus;
-
-  if (showRoutes) {
-    if (scene.places && scene.places.length > 0) {
-      return scene.places.map((p) => [p.longitude, p.latitude] as Coord);
-    }
-    return routes.flatMap((r) => sampleRouteCoords(r.coordinates));
-  }
-  if (scene.places && scene.places.length > 0) {
-    return scene.places.map((p) => [p.longitude, p.latitude] as Coord);
-  }
-  return sceneCoords(scene);
-}
-
-/** Apply content-inset padding as a center shift at a given zoom. */
-function padCenter(
-  center: Coord,
-  zoom: number,
-  pad: { top: number; right: number; bottom: number; left: number },
-): Coord {
-  const worldSize = TILE * 2 ** zoom;
-  const centerXNorm = lngToNormX(center[0]) + (pad.right - pad.left) / 2 / worldSize;
-  const centerYNorm = latToNormY(center[1]) + (pad.bottom - pad.top) / 2 / worldSize;
-  return [centerXNorm * 360 - 180, normYToLat(centerYNorm)];
-}
-
-// Switching between map pages (tabs / detail screens) uses a long flyTo so the
-// world glides instead of snapping. In-page reframes keep each scene's own timing.
-const PAGE_GLIDE = { durationMs: 2800, mode: 'flyTo' as const };
+  FALLBACK_CAMERA,
+  FIT_MAX_ZOOM,
+  PAGE_GLIDE,
+  computeFraming,
+  fitCamera,
+  padCenter,
+} from './mapCamera';
+import { expr, isMapboxConfigured, resolveMapStyle } from './mapConfig';
+import {
+  buildLineGroupShape,
+  buildPlaceCollection,
+  buildRouteLines,
+  buildRoutePoints,
+  buildStopCollection,
+} from './mapFeatures';
+import {
+  CLUSTER,
+  CLUSTER_PROPERTIES,
+  PLACE_LABEL_MIN_ZOOM,
+  buildClusterStyle,
+  buildCountStyle,
+  buildPlaceLabelStyle,
+  buildPointStyle,
+  buildRouteCasingStyle,
+  buildRouteDotStyle,
+  buildRouteLineStyle,
+  buildRoutePointStyle,
+  buildSelectedStyle,
+  buildStopDotStyle,
+  buildStopLabelStyle,
+  isVividBasemap,
+} from './mapLayerStyles';
+import { MarkerView } from './MapMarkerView';
+import { useActiveMapEntry, type Coord } from './mapScene';
 
 /**
  * The single, persistent map for the whole authenticated app. It renders on top
@@ -413,102 +118,15 @@ export function MapStage() {
 
   const selectedId = scene?.selectedPlaceId ?? null;
 
-  const placeCollection = useMemo<FeatureCollection<Point>>(
-    () => ({
-      type: 'FeatureCollection',
-      features: places.map((p) => {
-        const title = (p.city || p.label || '').trim();
-        return {
-          type: 'Feature' as const,
-          id: p.id,
-          properties: {
-            placeId: p.id,
-            weight: p.weight ?? 1,
-            title,
-            label: p.label ?? '',
-            city: p.city ?? '',
-          },
-          geometry: { type: 'Point' as const, coordinates: [p.longitude, p.latitude] },
-        };
-      }),
-    }),
-    [places],
-  );
-
-  const routeLines = useMemo<FeatureCollection<LineString>>(
-    () => ({
-      type: 'FeatureCollection',
-      features: routes.map((r) => ({
-        type: 'Feature',
-        id: r.id,
-        properties: {
-          routeId: r.id,
-          // Optional — absent colour falls back to the basemap default in style.
-          ...(r.color ? { color: r.color } : null),
-        },
-        geometry: {
-          type: 'LineString',
-          coordinates: arcedPath(r.coordinates, ROUTE.arcCurvature, ROUTE.arcSegments),
-        },
-      })),
-    }),
-    [routes],
-  );
-
-  // Visible stop dots for colour-coded routes (the list maps), mirroring the
-  // Lifetime routes look: a thin translucent line with a dot at each stop.
-  const routePoints = useMemo<FeatureCollection<Point>>(
-    () => ({
-      type: 'FeatureCollection',
-      features: routes.flatMap((r) =>
-        r.color
-          ? r.coordinates.map((c, i) => ({
-              type: 'Feature' as const,
-              id: `${r.id}-pt-${i}`,
-              properties: { color: r.color },
-              geometry: { type: 'Point' as const, coordinates: c },
-            }))
-          : [],
-      ),
-    }),
-    [routes],
-  );
+  const placeCollection = useMemo(() => buildPlaceCollection(places), [places]);
+  const routeLines = useMemo(() => buildRouteLines(routes), [routes]);
+  const routePoints = useMemo(() => buildRoutePoints(routes), [routes]);
 
   // Camera framing: re-aim whenever the scene, its data, or its insets change.
-  const framing = useMemo(() => {
-    if (!scene) return null;
-    const coords = framingCoords(scene, routes, showRoutes);
-    if (coords.length === 0) return null;
-    if (coords.length === 1) {
-      return {
-        ne: coords[0],
-        sw: coords[0],
-        center: null as Coord | null,
-        single: coords[0],
-        zoom: scene.singleZoom ?? 9,
-      };
-    }
-    if (scene.focusMode === 'trimmed') {
-      const trimmed = trimmedOverviewFrame(coords);
-      return {
-        ne: trimmed.ne as Coord,
-        sw: trimmed.sw as Coord,
-        // Lock to the full-set center so US+Europe frames mid-ocean, not a cluster.
-        center: trimmed.center as Coord,
-        single: null as Coord | null,
-        zoom: scene.singleZoom ?? 9,
-      };
-    }
-    const lngs = coords.map((c) => c[0]);
-    const lats = coords.map((c) => c[1]);
-    return {
-      ne: [Math.max(...lngs), Math.max(...lats)] as Coord,
-      sw: [Math.min(...lngs), Math.min(...lats)] as Coord,
-      center: null as Coord | null,
-      single: null as Coord | null,
-      zoom: scene.singleZoom ?? 9,
-    };
-  }, [scene, routes, showRoutes]);
+  const framing = useMemo(
+    () => (scene ? computeFraming(scene, routes, showRoutes) : null),
+    [scene, routes, showRoutes],
+  );
 
   // Aim the camera at the active scene: instant on the first aim (app start),
   // animated afterwards so the map reads as one continuous world. We compute the
@@ -620,16 +238,7 @@ export function MapStage() {
   const routeLineStyle = useMemo(() => buildRouteLineStyle(colors, vividRoutes), [colors, vividRoutes]);
   const routeCasingStyle = useMemo(() => buildRouteCasingStyle(), []);
   const routeDotStyle = useMemo(() => buildRouteDotStyle(colors, vividRoutes), [colors, vividRoutes]);
-  const routePointStyle = useMemo<CircleLayerStyle>(
-    () => ({
-      circleRadius: 2.5,
-      circleColor: expr(['get', 'color']),
-      circleOpacity: 0.95,
-      circleStrokeColor: colors.surface,
-      circleStrokeWidth: 0.5,
-    }),
-    [colors],
-  );
+  const routePointStyle = useMemo(() => buildRoutePointStyle(colors), [colors]);
 
   // Tour stops (numbered shows / off days) render as data-driven layers declared
   // *after* the route lines so the numbers always sit above the route — a plain
@@ -643,60 +252,9 @@ export function MapStage() {
     () => markers.filter((m) => m.kind === 'you' || m.kind === 'them' || m.kind === 'venue'),
     [markers],
   );
-  const stopCollection = useMemo<FeatureCollection<Point>>(
-    () => ({
-      type: 'FeatureCollection',
-      features: stopMarkers.map((m) => ({
-        type: 'Feature',
-        id: m.id,
-        properties: { kind: m.kind, label: m.label ?? '', stopId: m.id },
-        geometry: { type: 'Point', coordinates: m.coordinate },
-      })),
-    }),
-    [stopMarkers],
-  );
-  const stopDotStyle = useMemo<CircleLayerStyle>(
-    () => ({
-      circleRadius: 11,
-      circleColor: expr([
-        'match',
-        ['get', 'kind'],
-        'show',
-        colors.primary,
-        'tbd',
-        colors.surface,
-        'off',
-        colors.surface,
-        colors.primary,
-      ]),
-      circleStrokeWidth: 2,
-      circleStrokeColor: expr([
-        'match',
-        ['get', 'kind'],
-        'show',
-        colors.surface,
-        'tbd',
-        colors.primary,
-        'off',
-        colors.textMuted,
-        colors.surface,
-      ]),
-    }),
-    [colors],
-  );
-  const stopLabelStyle = useMemo<SymbolLayerStyle>(
-    () => ({
-      textField: expr(['get', 'label']),
-      textSize: 12,
-      textColor: expr(['match', ['get', 'kind'], 'tbd', colors.primary, colors.onPrimary]),
-      // Halo in the circle's own colour keeps the number crisp over the route line.
-      textHaloColor: expr(['match', ['get', 'kind'], 'show', colors.primary, colors.surface]),
-      textHaloWidth: 1.2,
-      textAllowOverlap: true,
-      textIgnorePlacement: true,
-    }),
-    [colors],
-  );
+  const stopCollection = useMemo(() => buildStopCollection(stopMarkers), [stopMarkers]);
+  const stopDotStyle = useMemo(() => buildStopDotStyle(colors), [colors]);
+  const stopLabelStyle = useMemo(() => buildStopLabelStyle(colors), [colors]);
 
   if (!isMapboxConfigured) return null;
 
@@ -880,15 +438,7 @@ export function MapStage() {
         {overlaysReady && (
           <>
             {lineGroups.map((group) => {
-              const shape: FeatureCollection<LineString> = {
-                type: 'FeatureCollection',
-                features: group.segments.map((seg, i) => ({
-                  type: 'Feature',
-                  id: `${group.id}-${i}`,
-                  properties: {},
-                  geometry: { type: 'LineString', coordinates: seg },
-                })),
-              };
+              const shape = buildLineGroupShape(group);
               const dashed = group.style === 'dashed';
               return (
                 <ShapeSource key={`${group.id}-${styleEpoch}`} id={`line-${group.id}`} shape={shape}>
@@ -970,7 +520,7 @@ export function MapStage() {
                 coordinate={marker.coordinate}
                 onSelected={() => scene?.onSelectMarker?.(marker)}
               >
-                <MarkerView marker={marker} styles={styles} />
+                <MarkerView marker={marker} />
               </PointAnnotation>
             ))}
           </>
@@ -981,31 +531,7 @@ export function MapStage() {
   );
 }
 
-function MarkerView({
-  marker,
-  styles,
-}: {
-  marker: SceneMarker;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const { kind, label } = marker;
-  if (kind === 'venue') {
-    return (
-      <View style={styles.venueMarkerOuter}>
-        <View style={styles.venueMarkerInner} />
-      </View>
-    );
-  }
-  return (
-    <View style={[styles.pin, kind === 'you' ? styles.pinYou : styles.pinThem]}>
-      <Text variant="caption" style={styles.pinText}>
-        {label ?? (kind === 'you' ? 'You' : 'Them')}
-      </Text>
-    </View>
-  );
-}
-
-const createStyles = (colors: ThemeColors) =>
+const createStyles = (_colors: ThemeColors) =>
   StyleSheet.create({
     root: {
       position: 'absolute',
@@ -1016,36 +542,5 @@ const createStyles = (colors: ThemeColors) =>
     },
     map: {
       flex: 1,
-    },
-    // Marker views
-    pin: {
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
-      borderRadius: radius.sm,
-    },
-    pinYou: {
-      backgroundColor: colors.primary,
-    },
-    pinThem: {
-      backgroundColor: colors.text,
-    },
-    pinText: {
-      color: '#fff',
-    },
-    venueMarkerOuter: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
-      backgroundColor: colors.onPrimary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: colors.primary,
-    },
-    venueMarkerInner: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: colors.primary,
     },
   });
