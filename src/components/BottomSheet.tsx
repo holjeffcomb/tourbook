@@ -1,6 +1,7 @@
 import { BlurView } from 'expo-blur';
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -13,6 +14,7 @@ import Animated, {
   Extrapolation,
   interpolate,
   runOnJS,
+  runOnUI,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -101,72 +103,94 @@ export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomS
     progress.value = maxOffset > 0 ? (h - minHeight) / maxOffset : 1;
   }, [maxHeight, maxOffset, minHeight, offsets, initialIndex, progress, sheetHeight]);
 
-  const updateProgress = (h: number) => {
-    'worklet';
-    progress.value = maxOffset > 0 ? (h - minHeight) / maxOffset : 1;
-  };
+  // Keep the latest snap-change handler in a ref so the function handed to
+  // `runOnJS` has a *stable* identity. Previously a fresh closure was passed on
+  // every render; swapping it mid-gesture forced the worklets runtime to
+  // re-serialize it and could abort (toOptimizedObject / Value::getObject).
+  const onSnapChangeRef = useRef(onSnapChange);
+  useEffect(() => {
+    onSnapChangeRef.current = onSnapChange;
+  }, [onSnapChange]);
+  const emitSnapChange = useCallback((index: number) => {
+    onSnapChangeRef.current?.(index);
+  }, []);
 
-  const settleTo = (index: number) => {
-    'worklet';
-    const clamped = Math.max(0, Math.min(index, offsets.length - 1));
-    const target = maxHeight - offsets[clamped];
-    if (motion) motion.value = 1;
-    sheetHeight.value = withSpring(target, SNAP_SPRING, (finished) => {
-      if (finished) {
-        updateProgress(target);
-        if (motion) motion.value = 0;
-      }
-    });
-    if (onSnapChange) runOnJS(onSnapChange)(clamped);
-  };
+  // Build the gesture (and its worklets) once per geometry change instead of on
+  // every render, so an in-flight drag or settling spring can't reference a torn
+  // closure that was swapped out underneath it.
+  const { gesture, settleTo } = useMemo(() => {
+    const updateProgress = (h: number) => {
+      'worklet';
+      progress.value = maxOffset > 0 ? (h - minHeight) / maxOffset : 1;
+    };
 
-  useImperativeHandle(ref, () => ({
-    snapTo: (index: number) => settleTo(index),
-  }));
-
-  const nearestIndex = (h: number, velocity: number) => {
-    'worklet';
-    // Velocity is in the drag direction (down = shorter). Project a little along
-    // the fling so a flick lands on the next snap.
-    const projected = h - velocity * 0.08;
-    let best = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < points.length; i += 1) {
-      const d = Math.abs(points[i] - projected);
-      if (d < bestDist) {
-        bestDist = d;
-        best = i;
-      }
-    }
-    return best;
-  };
-
-  const pan = Gesture.Pan()
-    .onStart(() => {
-      startHeight.value = sheetHeight.value;
+    const settle = (index: number) => {
+      'worklet';
+      const clamped = Math.max(0, Math.min(index, offsets.length - 1));
+      const target = maxHeight - offsets[clamped];
       if (motion) motion.value = 1;
-    })
-    .onUpdate((e) => {
-      // Drag down → shorter sheet; drag up → taller.
-      const next = startHeight.value - e.translationY;
-      sheetHeight.value = Math.max(minHeight, Math.min(next, maxHeight));
-      updateProgress(sheetHeight.value);
-    })
-    .onEnd((e) => {
-      // Index rises as the snap gets taller. A strong upward fling steps to the
-      // next-taller snap; a downward fling to the next-shorter one; otherwise we
-      // settle on whichever snap is nearest.
-      const current = nearestIndex(sheetHeight.value, 0);
-      let index: number;
-      if (e.velocityY < -FLING_VELOCITY) {
-        index = Math.min(current + 1, points.length - 1);
-      } else if (e.velocityY > FLING_VELOCITY) {
-        index = Math.max(current - 1, 0);
-      } else {
-        index = nearestIndex(sheetHeight.value, e.velocityY);
+      sheetHeight.value = withSpring(target, SNAP_SPRING, (finished) => {
+        if (finished) {
+          updateProgress(target);
+          if (motion) motion.value = 0;
+        }
+      });
+      runOnJS(emitSnapChange)(clamped);
+    };
+
+    const nearestIndex = (h: number, velocity: number) => {
+      'worklet';
+      // Velocity is in the drag direction (down = shorter). Project a little along
+      // the fling so a flick lands on the next snap.
+      const projected = h - velocity * 0.08;
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < points.length; i += 1) {
+        const d = Math.abs(points[i] - projected);
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
       }
-      settleTo(index);
-    });
+      return best;
+    };
+
+    const pan = Gesture.Pan()
+      .onStart(() => {
+        startHeight.value = sheetHeight.value;
+        if (motion) motion.value = 1;
+      })
+      .onUpdate((e) => {
+        // Drag down → shorter sheet; drag up → taller.
+        const next = startHeight.value - e.translationY;
+        sheetHeight.value = Math.max(minHeight, Math.min(next, maxHeight));
+        updateProgress(sheetHeight.value);
+      })
+      .onEnd((e) => {
+        // Index rises as the snap gets taller. A strong upward fling steps to the
+        // next-taller snap; a downward fling to the next-shorter one; otherwise we
+        // settle on whichever snap is nearest.
+        const current = nearestIndex(sheetHeight.value, 0);
+        let index: number;
+        if (e.velocityY < -FLING_VELOCITY) {
+          index = Math.min(current + 1, points.length - 1);
+        } else if (e.velocityY > FLING_VELOCITY) {
+          index = Math.max(current - 1, 0);
+        } else {
+          index = nearestIndex(sheetHeight.value, e.velocityY);
+        }
+        settle(index);
+      });
+
+    return { gesture: pan, settleTo: settle };
+  }, [points, offsets, maxHeight, minHeight, maxOffset, motion, progress, sheetHeight, startHeight, emitSnapChange]);
+
+  // `settleTo` is a worklet; hop to the UI thread to run it (so its shared-value
+  // writes and `runOnJS` fire in the normal UI→JS direction) instead of invoking
+  // a worklet from JS, which would round-trip JS→worklet→JS.
+  useImperativeHandle(ref, () => ({
+    snapTo: (index: number) => runOnUI(settleTo)(index),
+  }));
 
   const sheetStyle = useAnimatedStyle(() => ({
     height: sheetHeight.value,
@@ -186,7 +210,7 @@ export const BottomSheet = forwardRef<BottomSheetHandle, Props>(function BottomS
       />
       <View style={styles.surfaceTint} pointerEvents="none" />
 
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={gesture}>
         <View style={styles.grabZone}>
           <View style={styles.grabber} />
           {header}
