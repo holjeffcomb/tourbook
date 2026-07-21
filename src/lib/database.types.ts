@@ -340,6 +340,54 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      crossed_paths: {
+        Args: {
+          max_miles?: number
+          date_window_days?: number
+        }
+        Returns: {
+          friend_id: string
+          friend_display_name: string | null
+          friend_username: string | null
+          my_stop_id: string
+          my_tour_id: string
+          my_tour_title: string | null
+          my_act_name: string | null
+          my_kind: "show" | "off"
+          my_venue_id: string | null
+          my_venue_name: string | null
+          my_venue_city: string | null
+          my_venue_country: string | null
+          my_venue_lat: number | null
+          my_venue_lng: number | null
+          my_label: string | null
+          my_city: string | null
+          my_country: string | null
+          my_address: string | null
+          my_date: string
+          my_lat: number | null
+          my_lng: number | null
+          their_stop_id: string
+          their_tour_id: string
+          their_tour_title: string | null
+          their_act_name: string | null
+          their_kind: "show" | "off"
+          their_venue_id: string | null
+          their_venue_name: string | null
+          their_venue_city: string | null
+          their_venue_country: string | null
+          their_venue_lat: number | null
+          their_venue_lng: number | null
+          their_label: string | null
+          their_city: string | null
+          their_country: string | null
+          their_address: string | null
+          their_date: string
+          their_lat: number | null
+          their_lng: number | null
+          miles: number
+        }[]
+      }
       dedup_venues: {
         Args: {
           radius_m?: number

@@ -679,6 +679,53 @@ function daysBetween(a: string, b: string): number {
   return Math.round(ms / 86_400_000);
 }
 
+/**
+ * Builds one near-miss from an already-matched pair of stops. This is the single
+ * place the near-miss label/city/classification is decided, shared by the local
+ * `computeNearMisses` scan and the server-backed upcoming-crossings path so the
+ * two can never disagree for the same pair. `a` is always "you", `b` is "them".
+ */
+export function buildNearMiss(
+  a: { stop: TourStop; tour: OverlapTour },
+  b: { stop: TourStop; tour: OverlapTour },
+  miles: number,
+): NearMiss {
+  const vA = venueKey(a.stop);
+  const vB = venueKey(b.stop);
+  const cA = cityKey(a.stop);
+  const cB = cityKey(b.stop);
+  let kind: NearMiss['kind'] = 'nearby';
+  if (vA && vB && vA === vB) kind = 'same_venue';
+  else if (cA && cB && cA === cB) kind = 'same_city';
+
+  return {
+    dateA: a.stop.date,
+    dateB: b.stop.date,
+    stopA: {
+      stopId: a.stop.id,
+      label: stopLabel(a.stop),
+      city: a.stop.location?.city ?? '',
+      lat: a.stop.location!.latitude as number,
+      lng: a.stop.location!.longitude as number,
+      tourId: a.tour.id,
+      tourTitle: a.tour.title,
+      actName: a.tour.actName,
+    },
+    stopB: {
+      stopId: b.stop.id,
+      label: stopLabel(b.stop),
+      city: b.stop.location?.city ?? '',
+      lat: b.stop.location!.latitude as number,
+      lng: b.stop.location!.longitude as number,
+      tourId: b.tour.id,
+      tourTitle: b.tour.title,
+      actName: b.tour.actName,
+    },
+    milesApart: miles,
+    kind,
+  };
+}
+
 export function computeNearMisses(
   toursA: OverlapTour[],
   toursB: OverlapTour[],
@@ -722,40 +769,7 @@ export function computeNearMisses(
       if (seen.has(pairKey)) continue;
       seen.add(pairKey);
 
-      const vA = venueKey(a.stop);
-      const vB = venueKey(b.stop);
-      const cA = cityKey(a.stop);
-      const cB = cityKey(b.stop);
-      let kind: NearMiss['kind'] = 'nearby';
-      if (vA && vB && vA === vB) kind = 'same_venue';
-      else if (cA && cB && cA === cB) kind = 'same_city';
-
-      results.push({
-        dateA: a.stop.date,
-        dateB: b.stop.date,
-        stopA: {
-          stopId: a.stop.id,
-          label: stopLabel(a.stop),
-          city: a.stop.location?.city ?? '',
-          lat: lat1,
-          lng: lon1,
-          tourId: a.tour.id,
-          tourTitle: a.tour.title,
-          actName: a.tour.actName,
-        },
-        stopB: {
-          stopId: b.stop.id,
-          label: stopLabel(b.stop),
-          city: b.stop.location?.city ?? '',
-          lat: lat2,
-          lng: lon2,
-          tourId: b.tour.id,
-          tourTitle: b.tour.title,
-          actName: b.tour.actName,
-        },
-        milesApart: miles,
-        kind,
-      });
+      results.push(buildNearMiss(a, b, miles));
     }
   }
 

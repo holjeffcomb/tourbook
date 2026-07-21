@@ -47,7 +47,7 @@ export type TourStop = {
 const stopSelect =
   'id, date, kind, label, city, country, latitude, longitude, address, created_at, created_by, venue:venues(id, name, city, country, latitude, longitude)';
 
-type StopRow = {
+export type StopRow = {
   id: string;
   date: string;
   kind: StopKind;
@@ -62,7 +62,10 @@ type StopRow = {
   venue: ShowVenue | null;
 };
 
-function toStop(row: StopRow): TourStop {
+// Normalizes a raw `shows` row (with its optional joined venue) into a TourStop.
+// Exported so server-backed paths (e.g. crossed_paths) reconstruct stops the exact
+// same way the read path does, keeping labels/coordinates identical.
+export function toStop(row: StopRow): TourStop {
   let location: StopLocation | null = null;
   if (row.venue) {
     location = {

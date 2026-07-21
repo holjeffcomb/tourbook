@@ -31,6 +31,14 @@ export const membershipKey = queryKeys.tours.membership;
 export const membersKey = queryKeys.tours.members;
 export const tourSearchKey = queryKeys.tours.searchByAct;
 
+// Changing my tours/memberships can change my server-computed crossed paths.
+function invalidateCrossings(
+  queryClient: ReturnType<typeof useQueryClient>,
+  userId: string | undefined,
+) {
+  if (userId) queryClient.invalidateQueries({ queryKey: queryKeys.friends.crossings(userId) });
+}
+
 export function useTours() {
   const { session } = useAuth();
   const userId = session?.user.id;
@@ -84,7 +92,10 @@ export function useCreateTour() {
       if (!session) throw new Error('You must be signed in to create a tour');
       return createTour({ ...values, userId: session.user.id });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toursKey });
+      invalidateCrossings(queryClient, session?.user.id);
+    },
   });
 }
 
@@ -119,6 +130,7 @@ export function useUpdateTour(tourId: string) {
       queryClient.invalidateQueries({ queryKey: toursKey });
       queryClient.invalidateQueries({ queryKey: tourKey(tourId) });
       queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }
@@ -143,12 +155,16 @@ export function useCreateImportedTour() {
       if (!session) throw new Error('You must be signed in to import a tour');
       return createImportedTour({ ...values, userId: session.user.id });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toursKey });
+      invalidateCrossings(queryClient, session?.user.id);
+    },
   });
 }
 
 export function useDeleteTour() {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
 
   return useMutation({
     mutationFn: (tourId: string) => deleteTour(tourId),
@@ -160,6 +176,7 @@ export function useDeleteTour() {
       queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
       queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.shows.list(tourId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }
@@ -182,10 +199,12 @@ export function useTourSearch(actId: string | null) {
 
 function useInvalidateMembership(tourId: string) {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
   return () => {
     queryClient.invalidateQueries({ queryKey: toursKey });
     queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
     queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
+    invalidateCrossings(queryClient, session?.user.id);
   };
 }
 
@@ -216,6 +235,7 @@ export function useJoinTourById() {
       queryClient.invalidateQueries({ queryKey: toursKey });
       queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
       queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }

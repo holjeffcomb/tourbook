@@ -18,6 +18,14 @@ import {
 export const showsKey = queryKeys.shows.list;
 export const showKey = queryKeys.shows.detail;
 
+// Editing my itinerary can change my server-computed crossed paths, so refresh them.
+function invalidateCrossings(
+  queryClient: ReturnType<typeof useQueryClient>,
+  userId: string | undefined,
+) {
+  if (userId) queryClient.invalidateQueries({ queryKey: queryKeys.friends.crossings(userId) });
+}
+
 export function useStops(tourId: string) {
   return useQuery({
     queryKey: showsKey(tourId),
@@ -41,7 +49,10 @@ export function useCreateShow(tourId: string) {
       if (!session) throw new Error('You must be signed in to add a show');
       return createShow({ ...values, tourId, userId: session.user.id });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
+      invalidateCrossings(queryClient, session?.user.id);
+    },
   });
 }
 
@@ -57,6 +68,7 @@ export function useUpdateShow(tourId: string, showId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
       queryClient.invalidateQueries({ queryKey: showKey(showId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }
@@ -70,7 +82,10 @@ export function useCreateOffDay(tourId: string) {
       if (!session) throw new Error('You must be signed in to add an off day');
       return createOffDay({ ...values, tourId, userId: session.user.id });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
+      invalidateCrossings(queryClient, session?.user.id);
+    },
   });
 }
 
@@ -86,18 +101,21 @@ export function useUpdateOffDay(tourId: string, stopId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
       queryClient.invalidateQueries({ queryKey: showKey(stopId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }
 
 export function useDeleteStop(tourId: string) {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
 
   return useMutation({
     mutationFn: (stopId: string) => deleteStop(stopId),
     onSuccess: (_data, stopId) => {
       queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
       queryClient.invalidateQueries({ queryKey: showKey(stopId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }

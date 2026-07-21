@@ -55,6 +55,8 @@ export const queryKeys = {
   friends: {
     list: (userId: string) => ['friends', userId] as const,
     pending: (userId: string) => ['friends', userId, 'pending'] as const,
+    /** Server-computed crossed paths (near-misses) for the current user. */
+    crossings: (userId: string) => ['friends', userId, 'crossings'] as const,
   },
   friendship: {
     /** Prefix for invalidating every friendship query at once. */
