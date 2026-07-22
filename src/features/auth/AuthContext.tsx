@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { classifyStartupSession } from '@/features/auth/startupSession';
 import { asyncStoragePersister } from '@/lib/persister';
 import { queryClient } from '@/lib/queryClient';
 import { supabase } from '@/lib/supabase';
@@ -36,14 +37,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void (async () => {
       // Validate against the server — getSession() alone can return a stale JWT
       // after `supabase db reset` wiped auth.users while AsyncStorage kept the session.
+      // But a network failure is NOT proof the session is bad: classify it so an
+      // offline relaunch keeps the cached session and, critically, never wipes the
+      // offline write queue. Only a definitive auth failure clears local state.
       const { data: userData, error } = await supabase.auth.getUser();
-      if (error || !userData.user) {
+      if (classifyStartupSession(userData.user, error) === 'invalid') {
         await supabase.auth.signOut();
         queryClient.clear();
         queryClient.getMutationCache().clear();
         await asyncStoragePersister.removeClient();
         setSession(null);
       } else {
+        // 'valid' (server confirmed) or 'network' (offline/unreachable — trust the
+        // cached session). getSession() reads local storage without a network call.
         const { data } = await supabase.auth.getSession();
         setSession(data.session);
       }
