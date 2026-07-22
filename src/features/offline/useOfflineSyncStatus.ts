@@ -1,41 +1,16 @@
 import { onlineManager, useMutationState, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useSyncExternalStore } from 'react';
-import { mutationKeys } from '@/lib/queryKeys';
+import { useAuth } from '@/features/auth/AuthContext';
+import {
+  deriveSyncStatus,
+  type MutationStatusInfo,
+  type SyncState,
+} from '@/features/offline/syncStatus';
+import { isOfflineMutationKey } from '@/lib/offline/offlineMutationKeys';
+import { retryOfflineQueue } from '@/lib/offline/resumeQueue';
+import { supabase } from '@/lib/supabase';
 
-export type SyncState = 'idle' | 'offline' | 'syncing' | 'error';
-
-// Snapshot of one mutation, reduced to what status derivation needs.
-export type MutationStatusInfo = { status: 'idle' | 'pending' | 'success' | 'error' };
-
-// Pure status derivation (unit-tested). A paused (offline-queued) mutation still
-// reports status 'pending' in TanStack, so `pending` covers both queued-offline
-// and actively-replaying writes; `online` disambiguates the label.
-export function deriveSyncStatus(input: {
-  online: boolean;
-  statuses: MutationStatusInfo[];
-}): { state: SyncState; pendingCount: number } {
-  const pendingCount = input.statuses.filter((s) => s.status === 'pending').length;
-  const hasError = input.statuses.some((s) => s.status === 'error');
-
-  if (pendingCount > 0) return { state: input.online ? 'syncing' : 'offline', pendingCount };
-  if (hasError) return { state: 'error', pendingCount: 0 };
-  return { state: 'idle', pendingCount: 0 };
-}
-
-const OFFLINE_MUTATION_KEYS: string[] = [
-  mutationKeys.shows.create,
-  mutationKeys.shows.update,
-  mutationKeys.offDays.create,
-  mutationKeys.offDays.update,
-  mutationKeys.stops.delete,
-  mutationKeys.tours.create,
-  mutationKeys.tours.update,
-  mutationKeys.tours.delete,
-].map((key) => JSON.stringify(key));
-
-function isOfflineMutationKey(key: readonly unknown[] | undefined): boolean {
-  return !!key && OFFLINE_MUTATION_KEYS.includes(JSON.stringify(key));
-}
+export type { SyncState } from '@/features/offline/syncStatus';
 
 function useOnline(): boolean {
   return useSyncExternalStore(
@@ -45,15 +20,30 @@ function useOnline(): boolean {
   );
 }
 
-// Derives the app-wide offline sync status from the live online flag and the state
-// of our offline-capable mutations. Also exposes a `retry` that re-runs any paused
-// (queued) mutations — used by the pending-sync indicator's Retry action.
+// Best-effort session recovery using the stored refresh token, run before a manual
+// retry so an expired access token can't immediately re-fail the queue. Best-effort
+// by design: if it can't refresh (offline, or the refresh token itself is dead) we
+// still re-drive — those writes simply re-pause (offline) or re-error (dead session,
+// which correctly keeps the "Couldn't sync" state).
+async function recoverSession(): Promise<void> {
+  try {
+    await supabase.auth.refreshSession();
+  } catch {
+    // ignore — re-driving will surface any lasting failure via the error state
+  }
+}
+
+// Derives the app-wide offline sync status from the live online flag and our
+// offline-capable mutations. A failed replay (including an auth/token failure) shows
+// up as the generic "Couldn't sync" error state. `retry` refreshes the session first
+// (when online), then re-drives paused + previously-errored writes.
 export function useOfflineSyncStatus(): {
   state: SyncState;
   pendingCount: number;
   retry: () => void;
 } {
   const online = useOnline();
+  const { session } = useAuth();
   const queryClient = useQueryClient();
 
   const statuses = useMutationState({
@@ -62,8 +52,13 @@ export function useOfflineSyncStatus(): {
   });
 
   const retry = useCallback(() => {
-    void queryClient.resumePausedMutations();
-  }, [queryClient]);
+    void (async () => {
+      const userId = session?.user.id;
+      if (!userId) return;
+      if (online) await recoverSession();
+      await retryOfflineQueue(queryClient, userId);
+    })();
+  }, [online, session, queryClient]);
 
   return { ...deriveSyncStatus({ online, statuses }), retry };
 }

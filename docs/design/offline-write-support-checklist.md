@@ -244,7 +244,7 @@ defaults to `private`.
 | Subtle global indicator component (hidden when nothing pending; Offline/Syncing/Retry states) | new `src/features/offline/PendingSyncBar.tsx` |
 | Mount once inside the authed shell | `app/(app)/_layout.tsx` (or the tabs layout) |
 | Derive count/state from `onlineManager` + `useMutationState`/`useIsMutating` filtered to offline mutation keys | within the component + a small `useOfflineSyncStatus` hook (`src/features/offline/useOfflineSyncStatus.ts`) |
-| "Retry" action calls `resumePausedMutations()` | same hook/component |
+| "Retry" action refreshes the session (when online), then re-drives the queue via `retryOfflineQueue` (resume paused + re-execute previously-errored writes) | same hook/component + `src/lib/offline/resumeQueue.ts` |
 
 **Tests:**
 - Unit: `useOfflineSyncStatus` derives `{ pendingCount, state }` from mocked online flag + mutation
@@ -261,7 +261,7 @@ Stage 2.5, above; it is intentionally not part of Stage 3.)
 
 | Change | File(s) |
 |---|---|
-| `resumePausedMutations` runs only after a valid/refreshed session; on refresh failure, flip the indicator to "Couldn't sync · Retry" instead of silently erroring the queue | `app/_layout.tsx`, `src/features/auth/AuthContext.tsx`, `src/features/offline/*` |
+| `resumePausedMutations` runs only after a valid/refreshed session (cold start). A queued write that fails on replay (auth/token failure included) surfaces as the **generic** "Couldn't sync · Retry" error state — **no dedicated auth signal / `MutationCache` interception** (Option S, per Step 4 review). **Retry** refreshes the session before re-driving, so the auth case is handled without global machinery | `src/features/offline/useOfflineSyncStatus.ts`, `src/lib/offline/resumeQueue.ts` |
 | Defense-in-depth (F6): gate resume on a **session-identity match** (queued write's `userId` vs the current session user) so a queue can't replay under a different account; RLS (`created_by = auth.uid()`, tour-RPC owner checks) remains the backstop | `app/_layout.tsx`, `src/features/offline/*` |
 | Offline sign-out: clear the query + mutation caches + persisted client **locally** even when `supabase.auth.signOut()` can't reach the server | `src/features/auth/AuthContext.tsx` |
 
@@ -269,15 +269,15 @@ Stage 2.5, above; it is intentionally not part of Stage 3.)
 
 | Change | File(s) |
 |---|---|
-| Decouple persistence lifetime from read-freshness: keep `staleTime`/`gcTime` as the freshness controls; raise the persister **`maxAge` to ~30 days** (it only gates restore-vs-discard of the snapshot at hydration, **not** online read freshness) so offline-queued writes aren't silently dropped after 24h | `app/_layout.tsx` (`persistOptions.maxAge`), `src/lib/persister.ts`, `src/lib/queryClient.ts` (note the `gcTime` interaction) |
-| Add a persistence **`buster`** tied to the app/schema version so a queued mutation can't replay against incompatible code after an app update (bumping it invalidates the persisted cache + queue) | `app/_layout.tsx` (`persistOptions.buster`) |
+| Decouple durability from freshness: `staleTime` stays the only freshness knob; raise **`gcTime` (retention) + persister `maxAge` (durability) together to ~30 days** (`gcTime >= maxAge`) so offline-queued writes aren't silently dropped after 24h. `maxAge` only gates restore-vs-discard of the snapshot at hydration, not online read freshness | `src/lib/queryClient.ts` (`PERSIST_MAX_AGE`, `gcTime`), new `src/lib/persistOptions.ts`, `app/_layout.tsx` |
+| Add a persistence **`buster`** tied to a **schema/mutation-shape version (not the app version)** so a queued mutation can't replay against incompatible code after an upgrade (bumping it invalidates the persisted cache + queue) | new `src/lib/persistOptions.ts` (`PERSIST_BUSTER`) |
 | (Stretch) If dropped pending writes are detected on a `buster`/`maxAge` invalidation, surface "unsynced changes were cleared by an update" rather than discarding silently | `src/features/offline/*` |
 
 ### 6.3 UX / indicator polish
 
 | Change | File(s) |
 |---|---|
-| "Couldn't sync · Retry" state on auth-refresh failure (from 6.1) | `src/features/offline/PendingSyncBar.tsx`, `useOfflineSyncStatus` |
+| "Couldn't sync · Retry" state from any settled failure in the queue (auth included); Retry refreshes then re-drives paused + errored writes. Idempotent re-drive → **eventual convergence, not single-pass success** for dependent chains; re-driven `execute()` rejections are caught | `src/features/offline/PendingSyncBar.tsx`, `useOfflineSyncStatus`, `src/lib/offline/resumeQueue.ts` |
 | Optional per-row "unsynced" marker on stops/tours still in the queue | stop/tour list rows + a small `useMutationState` selector |
 
 **Tests (Stage 3):**

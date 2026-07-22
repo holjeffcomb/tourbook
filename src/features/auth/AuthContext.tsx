@@ -40,6 +40,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (error || !userData.user) {
         await supabase.auth.signOut();
         queryClient.clear();
+        queryClient.getMutationCache().clear();
         await asyncStoragePersister.removeClient();
         setSession(null);
       } else {
@@ -74,10 +75,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (error) throw error;
       },
       signOut: async () => {
+        // Best-effort server revocation. If it fails (e.g. offline), fall back to a
+        // local-scope sign-out so the session is still cleared on this device.
         const { error } = await supabase.auth.signOut();
-        if (error) throw error;
-        // Drop cached personal data so it can't leak to the next user on a shared device.
+        if (error) {
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        }
+        // Always drop cached personal data AND any queued offline mutations locally —
+        // even when the server was unreachable — so nothing can leak to, or replay
+        // under, the next user on a shared device (design §4.9, offline sign-out).
         queryClient.clear();
+        queryClient.getMutationCache().clear();
         await asyncStoragePersister.removeClient();
       },
     }),

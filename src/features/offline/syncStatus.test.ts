@@ -1,4 +1,4 @@
-import { deriveSyncStatus } from '@/features/offline/useOfflineSyncStatus';
+import { deriveSyncStatus } from '@/features/offline/syncStatus';
 
 describe('deriveSyncStatus', () => {
   it('is idle when there are no mutations', () => {

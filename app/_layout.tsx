@@ -8,8 +8,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext';
 import { initOnlineManager } from '@/lib/offline/onlineManager';
 import { registerMutationDefaults } from '@/lib/offline/mutationDefaults';
-import { asyncStoragePersister } from '@/lib/persister';
-import { CACHE_MAX_AGE, queryClient } from '@/lib/queryClient';
+import { resumeQueuedMutations } from '@/lib/offline/resumeQueue';
+import { persistOptions } from '@/lib/persistOptions';
+import { queryClient } from '@/lib/queryClient';
 import { ThemeProvider, useColors } from '@/theme/ThemeProvider';
 
 // Offline foundation. Runs once at module load, before any component renders, so
@@ -24,10 +25,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <PersistQueryClientProvider
-            client={queryClient}
-            persistOptions={{ persister: asyncStoragePersister, maxAge: CACHE_MAX_AGE }}
-          >
+          <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
             <AuthProvider>
               <StatusBar style="auto" />
               <RootNavigator />
@@ -46,10 +44,13 @@ function RootNavigator() {
   // Flush any mutations that were queued offline in a previous run, but only
   // once auth has settled and validated a session (AuthContext verifies the JWT
   // against the server). Replaying before that risks firing writes with a stale
-  // token. Reconnect-triggered resumes are handled automatically by onlineManager.
+  // token. `resumeQueuedMutations` also drops any queued write that belongs to a
+  // different user before flushing (identity-validated replay — §4.9/F6), so a
+  // shared-device account switch can't replay the previous user's queue.
+  // Reconnect-triggered resumes are handled automatically by onlineManager.
   useEffect(() => {
     if (!initializing && session) {
-      void queryClient.resumePausedMutations();
+      void resumeQueuedMutations(queryClient, session.user.id);
     }
   }, [initializing, session]);
 

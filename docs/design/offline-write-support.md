@@ -172,8 +172,15 @@ spinners, no modal, no per-action toast.
   replaying mutations. Suggested copy:
   - Offline with queued work → "Offline · N change(s) will sync".
   - Reconnecting/replaying → "Syncing N…".
-  - Replay failed (e.g. token refresh failed, server rejected) → "Couldn't sync · Retry",
-    where Retry calls `resumePausedMutations()`.
+  - Replay failed (e.g. token refresh failed, server rejected) → "Couldn't sync · Retry".
+    This is the **generic** settled-error state — any queued write that ends in `error`
+    (including an auth/token failure during replay) lands here, so no dedicated auth
+    signal is needed. **Retry** first refreshes the session (when online), then re-drives
+    the queue via `retryOfflineQueue` — resuming still-paused writes *and* re-executing
+    ones that previously errored (safe because every write is idempotent). Retry
+    guarantees **eventual convergence, not single-pass success**: an unordered dependent
+    chain (create → later edit) may need more than one Retry to fully drain, converging
+    to one correct state once the parent lands.
 - **Per-row marker (optional, v1.1):** a subtle dot on optimistic rows not yet synced. Nice
   but not required for v1 — the global indicator is the committed decision; the per-row marker
   is a follow-on if it proves useful.
@@ -267,8 +274,12 @@ not Stage 3.)
 **Replay & auth.**
 - **Session-gated replay.** `resumePausedMutations` must run only *after* the session is
   validated/refreshed (already the case on cold start). A long offline gap can expire the token;
-  replaying with a stale token would error the whole queue. On refresh failure we surface
-  "Couldn't sync · Retry" rather than silently failing the queued writes.
+  replaying with a stale token would error the queued writes — which surfaces as the generic
+  "Couldn't sync · Retry" state (see Sync UX). We deliberately **do not** add a dedicated
+  auth-error signal or `MutationCache` interception for this: a settled failure already produces
+  the error state, and **Retry refreshes the session before re-driving**, so the auth case is
+  handled without extra global machinery (Option S — chosen after the Step 4 review found the
+  dedicated signal introduced avoidable global side effects and cross-session staleness surface).
 - **Replay identity validation (F6).** A queued write carries the `userId` it was created under.
   Before replaying, confirm it matches the current session user, so a queue can never replay under a
   *different* account (e.g. sign out → sign in as someone else on a shared device). This is
@@ -282,20 +293,28 @@ not Stage 3.)
   `PersistQueryClientProvider` discards the whole snapshot at hydration if it is older than `maxAge`
   (currently 24h). So a write made offline and not reopened within 24h is **silently dropped** — a
   read-freshness knob doubling as the durability guarantee for unsynced user data.
-- **Key insight.** `maxAge` only gates *restore-vs-discard of the snapshot at hydration*; it does
-  **not** control online read freshness — `staleTime`/`gcTime` do. Raising `maxAge` therefore does
-  not make online reads staler; it only lengthens how long we trust an offline snapshot and, with it,
-  how long a queued write survives a closed app.
-- **Decision.** Keep `staleTime`/`gcTime` as the freshness controls and **raise the persister
-  `maxAge` to ~30 days** so realistic offline gaps no longer drop queued writes. Pair it with a
-  persistence **`buster`** tied to the app/schema version: bumping it invalidates the persisted cache
-  (and queue) on upgrade, so a mutation queued under an old variable shape can never replay against
-  changed code (this also closes finding **F8**). The trade-off is that offline *reads* can be shown
-  staler (up to the new window) — acceptable for a logbook, where stale-but-present beats absent.
+- **Key insight — three distinct knobs.** `staleTime` is the only **freshness** control (when an
+  online read is refetched). `gcTime` is **retention** (how long inactive data is kept in memory so it
+  can be re-persisted / read offline). The persister `maxAge` is **durability** (how long a restored
+  on-disk snapshot — including paused mutations — is trusted at hydration). Raising retention/durability
+  does **not** make online reads staler; that stays governed by `staleTime`.
+- **Decision.** Keep `staleTime` as the freshness control and **raise `gcTime` and the persister
+  `maxAge` together to ~30 days** (they must satisfy `gcTime >= maxAge` so retained data actually
+  survives to be restored) so realistic offline gaps no longer drop queued writes. Pair it with a
+  persistence **`buster`** tied to a schema/mutation-shape version (not the app version — see below):
+  bumping it invalidates the persisted cache (and queue) on upgrade, so a mutation queued under an old
+  variable shape can never replay against changed code (this also closes finding **F8**). The trade-off
+  is that offline *reads* can be shown staler (up to the new window) — acceptable for a logbook, where
+  stale-but-present beats absent.
 
 **Sync UX.**
-- The subtle indicator (§4.6) gains a real **"Couldn't sync · Retry"** state driven by the auth
-  handling above, plus the optional per-row "unsynced" marker already noted as a v1.1 follow-on.
+- The subtle indicator (§4.6) surfaces a **"Couldn't sync · Retry"** state from any settled
+  failure in the queue (auth/token failures included — no special-casing). **Retry** refreshes the
+  session (when online), then re-drives paused *and* previously-errored writes via
+  `retryOfflineQueue`. Because every write is idempotent, Retry guarantees **eventual convergence,
+  not single-pass success**: an unordered dependent chain may need repeated Retries to fully drain.
+  A re-driven `mutation.execute()` that fails again is caught so it can't become an unhandled
+  rejection. The optional per-row "unsynced" marker remains a v1.1 follow-on.
 
 ## 5. Data & Schema Impact
 
@@ -342,9 +361,10 @@ Delivered incrementally; the detailed, file-level plan lives in the
 - Token expiry across long offline gaps needs careful handling to avoid a stuck queue.
 - Persisted mutations in unencrypted AsyncStorage carry the same
   data-at-rest tradeoff already noted in `persister.ts`.
-- Raising the persistence `maxAge` to keep the write queue durable (§4.9) means offline *reads* can be
-  served staler (up to the new window). Acceptable for a logbook; online reads are unaffected because
-  freshness is governed by `staleTime`/`gcTime`, not `maxAge`.
+- Raising `gcTime` + the persistence `maxAge` to keep the write queue durable (§4.9) means offline
+  *reads* can be served staler (up to the new window). Acceptable for a logbook; online reads are
+  unaffected because freshness is governed by `staleTime` alone (not `gcTime`/`maxAge`, which control
+  retention/durability).
 
 ## 8. Effort & Risk
 
