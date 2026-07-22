@@ -1,8 +1,19 @@
 # Offline Write Support — Implementation Checklist
 
-Status: **Stages 1 & 2 implemented.** Stage 3 (auth/token-expiry hardening + optional per-row
-markers + contributor docs) pending.
+Status: **Stages 1, 2 & 2.5 complete** (2.5 reviewed + approved, incl. the F-A stable-id fix).
+**Stage 3** (offline hardening: auth/replay + durability + UX — incl. F2) planned, **pending review
+before implementation**.
 Source of truth: [`offline-write-support.md`](./offline-write-support.md) (approach approved).
+Post-Phase 4 architecture review + decisions: canvas `phase4-architecture-review` (findings F1/F2).
+
+**Approved decisions (post-Phase 4 review):**
+- **F1 → Stage 2.5 (separate architectural-consistency task, not folded into Stage 3).** Import is
+  the last multi-row write that skipped the atomic-RPC treatment used by
+  `create_tour_with_membership`. Adopt **Option A**: import stays *online to prepare* (parse +
+  resolve venues/geocode) and *commits atomically* via a single transactional, idempotent bulk RPC.
+- **F2 → Stage 3 (durability).** Decouple the persistence `maxAge` from read-freshness and raise it
+  (~30d) so offline-queued writes aren't silently dropped after 24h, and add a persistence `buster`
+  tied to the app/schema version so stale-shaped queued mutations can't replay after an app update.
 
 **Stage 1 done:** `@react-native-community/netinfo` + `expo-crypto` installed · `onlineManager`
 wired to NetInfo (`src/lib/offline/onlineManager.ts`) · UUID helper (`src/lib/uuid.ts`) ·
@@ -56,11 +67,16 @@ indicator.
 
 **Out of scope (stay online-only, documented):**
 - **AI import** (`useParseTour` / `useCreateImportedTour`, `src/features/tours/import.ts`) — the
-  parse step requires network (Mapbox/AI); can't run offline regardless.
+  parse + geocode steps require network, so import *preparation* can't run offline regardless.
+  **Stage 2.5 (F1)** still makes the *commit* atomic + idempotent via a transactional bulk RPC; the
+  action stays online-only but can no longer leave a partial tour.
 - **Join-by-discovery** (`useJoinTourById` from `AddTourScreen`) — discovery needs a live catalog
   read. `useJoinTour`/`useLeaveTour` on an already-cached tour *could* be queued later (Stage 3
   stretch), but are not Stage 1/2 commitments.
 - Full local replica / "download all for offline" (see proposal §2.1).
+- **Deferred review findings F3–F5** (replay ordering for dependent batches, stale connection-gated
+  cache, offline membership mutations) — reviewed and intentionally postponed; **not scheduled** for
+  Stage 2.5 or Stage 3. Rationale + revisit triggers live in the design doc (§9.1).
 
 **Guiding invariants:**
 - Every insert carries a **client-generated UUID**; replay is idempotent (`upsert onConflict id`
@@ -153,6 +169,74 @@ idempotent; `joinTour` already upserts.
 
 ---
 
+## 4.5 Stage 2.5 — Architectural consistency: transactional import commit (F1) — ✅ complete (reviewed + approved)
+
+Separate architectural-consistency task (**not** part of Stage 3). Closes **F1** from the post-Phase 4
+architecture review: import is the last multi-row write that skipped the atomic-RPC treatment used by
+`create_tour_with_membership`.
+
+**Done:** migration `supabase/migrations/20260724000000_create_imported_tour.sql` (transactional,
+idempotent, ownership-guarded `create_imported_tour`) · `createImportedTour` now resolves each stop
+client-side via `resolveShowLocation` (exported from `shows/api.ts`) then commits with one RPC call ·
+`useCreateImportedTour` set to `networkMode: 'always'` (online-only, no silent pause) · RPC type added
+to `database.types.ts` · SQL harness `supabase/tests/create_imported_tour.sql` (`db:test:import`) +
+unit test `src/features/tours/import.test.ts`.
+
+**Post-review fix (F-A — stable client ids):** the tour id and every show id are now minted **once per
+review session** (screen-held; tour id on parse, show ids per row) and passed as the mutation
+variables — `createImportedTour` no longer generates ids internally. This mirrors the create-tour
+pattern (`CreateTourVars`) and makes a retry / lost-ack re-tap re-send the same ids, so the idempotent
+RPC converges to one tour + set of shows instead of duplicating. Covered by a dedicated
+"re-invoking with the same variables re-sends identical stable ids" unit test. All jest + SQL
+harnesses pass.
+
+**Decision — Option A: online to prepare, atomic + idempotent to commit.** Parsing and venue/geocode
+resolution stay online (they can't run offline anyway); the commit becomes a single transactional,
+idempotent bulk RPC. Import remains online-only but can no longer leave a partial tour, and a
+flaky-network commit is safe to retry.
+
+**Server — new migration `supabase/migrations/<ts>_create_imported_tour.sql`:**
+- `create_imported_tour(p_tour_id uuid, p_act_id uuid, p_act_name text, p_title text,
+  p_start_date date, p_end_date date, p_visibility visibility, p_role text, p_stops jsonb)
+  returns uuid`, `SECURITY DEFINER`, one transaction.
+- Reuse the `create_tour_with_membership` **ownership guard**: if `p_tour_id` already exists and the
+  caller isn't the creator → reject (`42501`); the original creator replaying is an idempotent no-op.
+  Resolve the act server-side via `get_or_create_act` (same as the create path).
+- Insert every stop from `p_stops` with its **client-supplied id** via
+  `insert … on conflict (id) do nothing` → idempotent replay (converges to N shows, no dupes).
+- Each `p_stops` element carries **pre-resolved fields only** (no geocoding in SQL): `id`, `date`,
+  `kind` (`'show'`), `venue_id` (nullable), `city`, `country`, `latitude`, `longitude`, `address`.
+  Venues are resolved client-side during review (`getOrCreateVenue`, online), so the RPC does pure
+  inserts — no venue dedup in SQL.
+- `grant execute … to authenticated`.
+
+**Client:**
+- `createImportedTour` (`src/features/tours/import.ts`): resolve each stop's venue/geocode in the
+  review/confirm step (already does), generate a **client id per show**, and call the single
+  `create_imported_tour` RPC with the stops array — replacing the current
+  tour-RPC-then-loop-`createShow`.
+- `useCreateImportedTour` (`src/features/tours/queries.ts`): stays a **normal (online-only)**
+  mutation — NOT added to the offline `setMutationDefaults` registry and NOT persisted for cold-start
+  replay (parse/geocode need network). The idempotent RPC + `retry` + the existing indicator cover a
+  flaky commit. Gate the confirm action when offline with a clear message (no silent queue).
+- `src/lib/database.types.ts`: add the `create_imported_tour` RPC signature.
+
+**Verify before coding:** the `venues` dedup/unique constraint (so client-side `getOrCreateVenue`
+fully settles `venue_id`s), that `shows` columns match the jsonb fields, and that `visibility`
+defaults to `private`.
+
+**Tests (Stage 2.5):**
+- SQL regression `supabase/tests/create_imported_tour.sql` (add a `db:test:import` script): N stops →
+  1 tour + 1 membership + N shows; replay is idempotent (still 1 tour, N shows, no dupes); a
+  non-owner attaching to an existing tour id is rejected (mirrors the create-tour guard); a bad row
+  aborts the whole transaction (all-or-nothing).
+- Unit: `createImportedTour` builds the stops payload with client ids + resolved venue/geocode and
+  makes a single `supabase.rpc('create_imported_tour', …)` call (mock supabase).
+
+**Out of scope:** making import work fully offline (parse can't) — remains online-only.
+
+---
+
 ## 5. Pending-sync indicator (Stage 2/3, per §4.6)
 
 | Change | File(s) |
@@ -168,13 +252,39 @@ idempotent; `joinTour` already upserts.
 
 ---
 
-## 6. Auth / token-expiry hardening (Stage 3)
+## 6. Offline hardening (Stage 3)
+
+Focused on offline hardening only: **auth/replay**, **durability**, **UX**. (Import atomicity is
+Stage 2.5, above; it is intentionally not part of Stage 3.)
+
+### 6.1 Auth / replay
 
 | Change | File(s) |
 |---|---|
-| Ensure `resumePausedMutations` runs only after a valid/refreshed session; on refresh failure, flip indicator to "Couldn't sync · Retry" rather than silently erroring the queue | `app/_layout.tsx`, `src/features/auth/AuthContext.tsx`, `src/features/offline/*` |
+| `resumePausedMutations` runs only after a valid/refreshed session; on refresh failure, flip the indicator to "Couldn't sync · Retry" instead of silently erroring the queue | `app/_layout.tsx`, `src/features/auth/AuthContext.tsx`, `src/features/offline/*` |
+| Defense-in-depth (F6): gate resume on a **session-identity match** (queued write's `userId` vs the current session user) so a queue can't replay under a different account; RLS (`created_by = auth.uid()`, tour-RPC owner checks) remains the backstop | `app/_layout.tsx`, `src/features/offline/*` |
+| Offline sign-out: clear the query + mutation caches + persisted client **locally** even when `supabase.auth.signOut()` can't reach the server | `src/features/auth/AuthContext.tsx` |
 
-**Tests:** unit around the "resume gated on session" logic (mock auth state).
+### 6.2 Durability — persistence `maxAge` + `buster` (F2)
+
+| Change | File(s) |
+|---|---|
+| Decouple persistence lifetime from read-freshness: keep `staleTime`/`gcTime` as the freshness controls; raise the persister **`maxAge` to ~30 days** (it only gates restore-vs-discard of the snapshot at hydration, **not** online read freshness) so offline-queued writes aren't silently dropped after 24h | `app/_layout.tsx` (`persistOptions.maxAge`), `src/lib/persister.ts`, `src/lib/queryClient.ts` (note the `gcTime` interaction) |
+| Add a persistence **`buster`** tied to the app/schema version so a queued mutation can't replay against incompatible code after an app update (bumping it invalidates the persisted cache + queue) | `app/_layout.tsx` (`persistOptions.buster`) |
+| (Stretch) If dropped pending writes are detected on a `buster`/`maxAge` invalidation, surface "unsynced changes were cleared by an update" rather than discarding silently | `src/features/offline/*` |
+
+### 6.3 UX / indicator polish
+
+| Change | File(s) |
+|---|---|
+| "Couldn't sync · Retry" state on auth-refresh failure (from 6.1) | `src/features/offline/PendingSyncBar.tsx`, `useOfflineSyncStatus` |
+| Optional per-row "unsynced" marker on stops/tours still in the queue | stop/tour list rows + a small `useMutationState` selector |
+
+**Tests (Stage 3):**
+- Unit: "resume gated on valid session + identity match" logic (mock auth + mutation vars).
+- Unit/config: persist options use the decoupled `maxAge` + a version `buster` (assert wiring).
+- Manual airplane-mode script extended with a **>24h durability** check (write offline → reopen
+  after the old 24h window → write still queued and syncs once).
 
 ---
 
@@ -193,8 +303,12 @@ idempotent; `joinTour` already upserts.
    indicator acceptable here.
 2. **Stage 2 — Rollout + deletes + indicator:** remaining show/off-day/tour create/update/delete
    (deletes per §4.7) + the subtle global indicator.
-3. **Stage 3 — Hardening:** token-expiry ordering, indicator Retry/error states, optional per-row
-   unsynced marker, contributor docs.
+2.5. **Stage 2.5 — Import architectural consistency (F1): ✅ complete.** Transactional idempotent bulk
+   RPC `create_imported_tour`; import stays online-to-prepare, atomic-to-commit — no more partial
+   tours. Stable client ids minted once (F-A fix) so retries/re-taps converge to one tour.
+3. **Stage 3 — Offline hardening:** auth/replay gating (session validity + identity, offline
+   sign-out), **durability** (decoupled persister `maxAge` ~30d + version `buster` — F2), and UX
+   polish (Couldn't-sync/Retry, optional per-row unsynced marker) + contributor docs.
 
 ## Risks / watch-items
 - **Multi-row create tour**: use a **single transactional RPC** (`create_tour_with_membership`),
@@ -206,3 +320,8 @@ idempotent; `joinTour` already upserts.
   `persister.ts`; no secrets added.
 - **Testing depth**: RN/jest can't easily exercise full persist+resume; cover the **pure**
   optimistic/dequeue/status helpers with unit tests and keep a written manual airplane-mode script.
+- **Import commit atomicity (Stage 2.5 / F1)**: keep venue/geocode resolution client-side (online)
+  so the `create_imported_tour` RPC stays pure inserts; verify the `venues` dedup constraint first.
+- **Durability vs freshness (Stage 3 / F2)**: the persister `maxAge` only gates snapshot restore,
+  not online read freshness — safe to raise to ~30d; pair it with a version `buster` so old queued
+  mutations can't replay against changed code.

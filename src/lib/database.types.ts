@@ -401,6 +401,20 @@ export type Database = {
         }
         Returns: string
       }
+      create_imported_tour: {
+        Args: {
+          p_tour_id: string
+          p_act_id: string | null
+          p_act_name: string
+          p_title: string | null
+          p_start_date: string | null
+          p_end_date: string | null
+          p_visibility: Database["public"]["Enums"]["visibility"] | null
+          p_role: string | null
+          p_stops: Json
+        }
+        Returns: string
+      }
       get_or_create_act: {
         Args: {
           p_name: string

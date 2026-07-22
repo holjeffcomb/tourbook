@@ -168,7 +168,11 @@ export type CreateShowInput = VenueFields & {
 // A booked venue lives in the shared `venues` table (deduped, coordinates reused
 // across tours). A city-only show ("venue TBD") stores just its geocoded city
 // inline so it still appears on the map. Returns the columns to write for each.
-async function resolveShowLocation(input: VenueFields & { userId: string }) {
+//
+// Exported so the transactional import pipeline (Stage 2.5) resolves each stop's
+// venue/geocoding client-side — exactly like the single-show write path — before
+// handing pre-resolved rows to the `create_imported_tour` RPC.
+export async function resolveShowLocation(input: VenueFields & { userId: string }) {
   const name = input.venueName?.trim();
   if (name) {
     // The user picked an existing catalog venue — reuse that exact row. The

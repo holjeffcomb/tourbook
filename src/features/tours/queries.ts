@@ -147,7 +147,17 @@ export function useCreateImportedTour() {
   const { session } = useAuth();
 
   return useMutation({
+    // Import is online-only by design (Stage 2.5 — parse + venue/geocode need network). `'always'`
+    // stops TanStack Query from silently *pausing* the mutation while offline (the default 'online'
+    // in-memory queue, which isn't persisted and would just hang the confirm); instead it runs and
+    // fails fast so ImportTourScreen surfaces the error. The commit itself is atomic + idempotent,
+    // so retrying a flaky commit is safe.
+    networkMode: 'always',
+    // Variables carry the stable client-generated ids (tour `id` + each `stop.id`, minted once
+    // during review) — the same pattern as `CreateTourVars`. Re-invoking with the same variables
+    // re-sends the same ids, so the idempotent RPC converges to one tour + set of shows.
     mutationFn: (values: {
+      id: string;
       actName: string;
       actId?: string | null;
       tourTitle: string | null;

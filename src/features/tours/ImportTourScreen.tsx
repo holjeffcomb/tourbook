@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -25,6 +25,7 @@ import {
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { formatShowDate } from '@/lib/date';
 import { getErrorMessage } from '@/lib/errors';
+import { newId } from '@/lib/uuid';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
@@ -41,6 +42,10 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type EditableStop = {
   key: string;
+  // Stable client-generated show id, minted once when the row is created and kept
+  // across edits/re-taps, so re-submitting the import upserts the same show row
+  // (idempotent) instead of duplicating it.
+  showId: string;
   date: string;
   venueName: string;
   city: string;
@@ -66,6 +71,7 @@ function makeStop(partial: Partial<EditableStop> = {}): EditableStop {
   stopCounter += 1;
   return {
     key: `stop-${stopCounter}`,
+    showId: newId(),
     date: '',
     venueName: '',
     city: '',
@@ -220,6 +226,11 @@ export function ImportTourScreen() {
   const [stops, setStops] = useState<EditableStop[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Stable tour id for this import session, minted once when a parse produces the
+  // review list. Reused across re-taps (e.g. after a failed/lost-ack commit) so the
+  // idempotent RPC converges to a single tour instead of creating a duplicate.
+  const tourIdRef = useRef<string | null>(null);
+
   const resolveStop = useCallback(async (key: string, stop: EditableStop) => {
     if (!isValidStop(stop)) return;
 
@@ -314,6 +325,8 @@ export function ImportTourScreen() {
       setTourTitle(parsed.tourTitle ?? '');
       const editable = toEditable(parsed);
       setStops(editable);
+      // Fresh import session -> fresh stable tour id (distinct from any earlier attempt).
+      tourIdRef.current = newId();
       setPhase('review');
       void resolveAllStops(editable);
     } catch (err) {
@@ -379,7 +392,11 @@ export function ImportTourScreen() {
 
   const onCreate = async () => {
     setError(null);
+    // Reuse the session's stable ids so a re-tap after a failed/lost-ack commit converges to one
+    // tour + set of shows (the RPC upserts on these ids) rather than duplicating.
+    const tourId = (tourIdRef.current ??= newId());
     const payloadStops: ImportStop[] = validStops.map((stop) => ({
+      id: stop.showId,
       date: stop.date,
       venueName: stop.venueName.trim(),
       city: stop.city.trim(),
@@ -392,6 +409,7 @@ export function ImportTourScreen() {
     }));
     try {
       const { id } = await create.mutateAsync({
+        id: tourId,
         actName: actName.trim(),
         actId: actId ?? null,
         tourTitle: tourTitle.trim() || null,

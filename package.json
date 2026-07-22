@@ -50,7 +50,8 @@
     "typecheck": "tsc --noEmit",
     "db:types": "supabase gen types typescript --local > src/lib/database.types.ts",
     "db:test:rls": "psql \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" -v ON_ERROR_STOP=1 -f supabase/tests/membership_not_access.sql",
-    "db:test:create-tour": "psql \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" -v ON_ERROR_STOP=1 -f supabase/tests/create_tour_with_membership.sql"
+    "db:test:create-tour": "psql \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" -v ON_ERROR_STOP=1 -f supabase/tests/create_tour_with_membership.sql",
+    "db:test:import": "psql \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" -v ON_ERROR_STOP=1 -f supabase/tests/create_imported_tour.sql"
   },
   "jest": {
     "preset": "jest-expo",
