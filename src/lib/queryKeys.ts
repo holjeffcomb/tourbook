@@ -48,7 +48,6 @@ export const queryKeys = {
   profiles: {
     detail: (userId: string) => ['profile', userId] as const,
     search: (term: string) => ['profiles', 'search', term] as const,
-    publicTours: (userId: string) => ['profile', userId, 'public-tours'] as const,
     // NOTE: lives under the `profile` prefix (not `tours`) — preserved as-is.
     visibleTours: (userId: string) => ['profile', userId, 'visible-tours'] as const,
   },
@@ -67,4 +66,29 @@ export const queryKeys = {
   },
   weather: (lat: number | null, lng: number | null, dateISO: string | null) =>
     ['weather', lat, lng, dateISO] as const,
+} as const;
+
+// Stable keys for offline-capable mutations. Unlike query keys these must stay
+// constant across app restarts: a mutation persisted to disk while offline is
+// rehydrated by its key and matched to the `mutationFn`/optimistic handlers
+// registered via `setMutationDefaults` (see src/lib/offline/mutationDefaults.ts).
+// Keep them coarse (one key per operation, not per row) — the row is identified
+// by the client-generated id in the mutation variables.
+export const mutationKeys = {
+  shows: {
+    create: ['shows', 'create'] as const,
+    update: ['shows', 'update'] as const,
+  },
+  offDays: {
+    create: ['offDays', 'create'] as const,
+    update: ['offDays', 'update'] as const,
+  },
+  stops: {
+    delete: ['stops', 'delete'] as const,
+  },
+  tours: {
+    create: ['tours', 'create'] as const,
+    update: ['tours', 'update'] as const,
+    delete: ['tours', 'delete'] as const,
+  },
 } as const;

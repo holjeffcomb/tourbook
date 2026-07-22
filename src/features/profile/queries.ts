@@ -3,7 +3,6 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   getProfile,
-  listPublicToursForUser,
   searchProfiles,
   updateProfile,
   type ProfileUpdate,
@@ -11,7 +10,6 @@ import {
 
 export const profileKey = queryKeys.profiles.detail;
 export const profileSearchKey = queryKeys.profiles.search;
-export const publicToursKey = queryKeys.profiles.publicTours;
 
 export function useProfile(userId?: string) {
   const { session } = useAuth();
@@ -48,13 +46,5 @@ export function useProfileSearch(term: string) {
     queryFn: () => searchProfiles(trimmed, session?.user.id),
     enabled: trimmed.length >= 2,
     staleTime: 30_000,
-  });
-}
-
-export function usePublicToursForUser(userId: string) {
-  return useQuery({
-    queryKey: publicToursKey(userId),
-    queryFn: () => listPublicToursForUser(userId),
-    enabled: !!userId,
   });
 }

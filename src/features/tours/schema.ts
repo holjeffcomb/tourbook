@@ -23,12 +23,14 @@ export const createTourSchema = z
 
 export type CreateTourValues = z.infer<typeof createTourSchema>;
 
+// 'public' is retired (see docs/design/social-model.md): content visibility is
+// Private / Connections only; broad reach happens via Publishing later. The 'public'
+// enum value still exists in the DB but is no longer offered here.
 export const VISIBILITY_OPTIONS: {
-  value: CreateTourValues['visibility'];
+  value: Exclude<CreateTourValues['visibility'], 'public'>;
   label: string;
   hint: string;
 }[] = [
-  { value: 'public', label: 'Public', hint: 'Anyone can find and join' },
-  { value: 'friends', label: 'Friends', hint: 'Your friends and members can see it' },
-  { value: 'private', label: 'Private', hint: 'Only members can see it' },
+  { value: 'private', label: 'Private', hint: 'Only you' },
+  { value: 'friends', label: 'Connections', hint: 'Visible to your accepted connections' },
 ];

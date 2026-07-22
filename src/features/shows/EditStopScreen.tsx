@@ -7,7 +7,6 @@ import { OffDayForm } from '@/features/shows/OffDayForm';
 import { ShowForm } from '@/features/shows/ShowForm';
 import { useDeleteStop, useStop, useUpdateOffDay, useUpdateShow } from '@/features/shows/queries';
 import type { CreateShowValues, OffDayValues } from '@/features/shows/schema';
-import { getErrorMessage } from '@/lib/errors';
 import { spacing } from '@/theme';
 import { useColors } from '@/theme/ThemeProvider';
 
@@ -53,13 +52,11 @@ export function EditStopScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteStop.mutateAsync(showId);
-              router.back();
-            } catch (error) {
-              Alert.alert('Error', getErrorMessage(error, 'Unable to delete'));
-            }
+          onPress: () => {
+            // Optimistic + queued offline; navigate immediately. A sync failure
+            // rolls the stop back and surfaces via the pending-sync indicator.
+            deleteStop.submit(showId);
+            router.back();
           },
         },
       ],
@@ -81,7 +78,7 @@ export function EditStopScreen() {
         submitLabel="Save changes"
         defaultValues={defaultValues}
         onSubmit={async (values) => {
-          await updateOffDay.mutateAsync(values);
+          updateOffDay.submit(values);
           router.back();
         }}
         onDelete={confirmDelete}
@@ -106,7 +103,7 @@ export function EditStopScreen() {
       submitLabel="Save changes"
       defaultValues={defaultValues}
       onSubmit={async (values) => {
-        await updateShow.mutateAsync(values);
+        updateShow.submit(values);
         router.back();
       }}
       onDelete={confirmDelete}

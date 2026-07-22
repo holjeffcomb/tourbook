@@ -5,6 +5,7 @@ import { FloatingTabBar, TabBarProvider } from '@/features/maps/FloatingTabBar';
 import { MapOverlayOutlet } from '@/features/maps/MapOverlayOutlet';
 import { MapStage } from '@/features/maps/MapStage';
 import { MapSceneProvider } from '@/features/maps/mapScene';
+import { PendingSyncBar } from '@/features/offline/PendingSyncBar';
 import { useColors, useTheme } from '@/theme/ThemeProvider';
 
 export default function AppLayout() {
@@ -50,6 +51,7 @@ export default function AppLayout() {
           <MapStage />
           <MapOverlayOutlet />
           <FloatingTabBar />
+          <PendingSyncBar />
         </View>
       </TabBarProvider>
     </MapSceneProvider>

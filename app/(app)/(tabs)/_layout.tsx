@@ -37,7 +37,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="friends-tours"
         options={{
-          title: "Friends' Tours",
+          title: 'Connections',
           tabBarIcon: tabIcon('people', 'people-outline'),
         }}
       />

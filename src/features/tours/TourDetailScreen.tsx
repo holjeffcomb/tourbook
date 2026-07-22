@@ -463,13 +463,11 @@ export function TourDetailScreen() {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteTour.mutateAsync(id);
-            router.back();
-          } catch (error) {
-            Alert.alert('Error', error instanceof Error ? error.message : 'Unable to delete tour');
-          }
+        onPress: () => {
+          // Optimistic + queued offline; navigate immediately. A sync failure rolls
+          // the tour back and surfaces via the pending-sync indicator.
+          deleteTour.submit(id);
+          router.back();
         },
       },
     ]);

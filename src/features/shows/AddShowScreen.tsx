@@ -30,7 +30,8 @@ export function AddShowScreen() {
         address: null,
       }}
       onSubmit={async (values) => {
-        await createShow.mutateAsync(values);
+        // Fire-and-forget: queued + optimistic offline, syncs on reconnect.
+        createShow.submit(values);
         router.back();
       }}
     />

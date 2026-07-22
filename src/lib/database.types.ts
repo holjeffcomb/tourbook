@@ -388,6 +388,37 @@ export type Database = {
           miles: number
         }[]
       }
+      create_tour_with_membership: {
+        Args: {
+          p_tour_id: string
+          p_act_id: string | null
+          p_act_name: string
+          p_title: string | null
+          p_start_date: string | null
+          p_end_date: string | null
+          p_visibility: Database["public"]["Enums"]["visibility"]
+          p_role: string | null
+        }
+        Returns: string
+      }
+      get_or_create_act: {
+        Args: {
+          p_name: string
+        }
+        Returns: string
+      }
+      update_tour_with_role: {
+        Args: {
+          p_tour_id: string
+          p_act_name: string
+          p_title: string | null
+          p_start_date: string | null
+          p_end_date: string | null
+          p_visibility: Database["public"]["Enums"]["visibility"] | null
+          p_role: string | null
+        }
+        Returns: undefined
+      }
       dedup_venues: {
         Args: {
           radius_m?: number
@@ -428,6 +459,22 @@ export type Database = {
           max_km?: number
         }
         Returns: number
+      }
+      search_tours_by_act: {
+        Args: {
+          p_act_id: string
+        }
+        Returns: {
+          id: string
+          title: string | null
+          start_date: string | null
+          end_date: string | null
+          created_at: string
+          act_id: string
+          act_name: string
+          member_count: number
+          creator_display_name: string | null
+        }[]
       }
       search_venues: {
         Args: {

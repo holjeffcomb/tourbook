@@ -20,7 +20,7 @@ export function FriendsListScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title="Friends" />
+      <ScreenHeader title="Connections" />
 
       {crossedPaths.count > 0 && (
         <Pressable
@@ -41,13 +41,13 @@ export function FriendsListScreen() {
       <QueryBoundary
         isLoading={friendsQuery.isLoading}
         isError={friendsQuery.isError}
-        errorMessage="Couldn't load friends."
+        errorMessage="Couldn't load connections."
         onRetry={() => friendsQuery.refetch()}
         containerStyle={styles.center}
       >
         {(friendsQuery.data?.length ?? 0) === 0 ? (
           <View style={styles.center}>
-            <Text color="textMuted">No friends yet.</Text>
+            <Text color="textMuted">No connections yet.</Text>
             <Button title="Find people" onPress={() => router.push('/people')} />
           </View>
         ) : (
@@ -77,7 +77,7 @@ export function FriendsListScreen() {
                   )}
                 </Pressable>
                 <Button
-                  title="Unfriend"
+                  title="Remove"
                   variant="secondary"
                   onPress={() => unfriend.mutate(row.id)}
                   loading={unfriend.isPending}

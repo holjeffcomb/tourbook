@@ -3,10 +3,10 @@ import { useMemo } from 'react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { pickActiveTour } from '@/features/tours/tourMode';
 import { dateToISO } from '@/lib/date';
-import { queryKeys } from '@/lib/queryKeys';
+import type { CreateTourVars, DeleteTourVars, UpdateTourVars } from '@/lib/offline/mutationDefaults';
+import { mutationKeys, queryKeys } from '@/lib/queryKeys';
+import { newId } from '@/lib/uuid';
 import {
-  createTour,
-  deleteTour,
   getMyMembership,
   getTour,
   joinTour,
@@ -14,9 +14,8 @@ import {
   listMyTours,
   listTourMembers,
   searchToursByAct,
-  updateMyRole,
-  updateTour,
   type CreateTourInput,
+  type TourVisibility,
 } from '@/features/tours/api';
 import {
   createImportedTour,
@@ -83,20 +82,26 @@ export function useMyMembership(tourId: string) {
   });
 }
 
-export function useCreateTour() {
-  const queryClient = useQueryClient();
-  const { session } = useAuth();
+// Offline-capable (transactional RPC + optimistic cache). Handlers live in
+// `registerMutationDefaults` keyed by `mutationKeys.tours.*`; hooks build the
+// self-contained variables. `submit()` fires without awaiting (see shows/queries.ts
+// for why); create returns the client tour id so the caller can navigate immediately.
+type CreateTourValues = Omit<CreateTourInput, 'userId' | 'id'>;
 
-  return useMutation({
-    mutationFn: (values: Omit<CreateTourInput, 'userId'>) => {
-      if (!session) throw new Error('You must be signed in to create a tour');
-      return createTour({ ...values, userId: session.user.id });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: toursKey });
-      invalidateCrossings(queryClient, session?.user.id);
-    },
+export function useCreateTour() {
+  const { session } = useAuth();
+  const mutation = useMutation<{ id: string }, Error, CreateTourVars>({
+    mutationKey: mutationKeys.tours.create,
   });
+  return {
+    ...mutation,
+    submit: (values: CreateTourValues): string => {
+      if (!session) throw new Error('You must be signed in to create a tour');
+      const vars: CreateTourVars = { ...values, userId: session.user.id, id: newId() };
+      mutation.mutate(vars);
+      return vars.id;
+    },
+  };
 }
 
 type UpdateTourValues = {
@@ -105,17 +110,19 @@ type UpdateTourValues = {
   title?: string;
   startDate?: string | null;
   endDate?: string | null;
-  visibility?: 'public' | 'friends' | 'private';
+  visibility?: TourVisibility;
 };
 
 export function useUpdateTour(tourId: string) {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
-
-  return useMutation({
-    mutationFn: async (values: UpdateTourValues) => {
+  const mutation = useMutation<void, Error, UpdateTourVars>({
+    mutationKey: mutationKeys.tours.update,
+  });
+  return {
+    ...mutation,
+    submit: (values: UpdateTourValues) => {
       if (!session) throw new Error('You must be signed in to edit a tour');
-      await updateTour({
+      mutation.mutate({
         tourId,
         userId: session.user.id,
         actName: values.actName,
@@ -123,16 +130,10 @@ export function useUpdateTour(tourId: string) {
         startDate: values.startDate,
         endDate: values.endDate,
         visibility: values.visibility,
+        role: values.role ?? null,
       });
-      await updateMyRole(tourId, session.user.id, values.role ?? null);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: toursKey });
-      queryClient.invalidateQueries({ queryKey: tourKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
-      invalidateCrossings(queryClient, session?.user.id);
-    },
-  });
+  };
 }
 
 export function useParseTour() {
@@ -163,22 +164,17 @@ export function useCreateImportedTour() {
 }
 
 export function useDeleteTour() {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
-
-  return useMutation({
-    mutationFn: (tourId: string) => deleteTour(tourId),
-    // The tour and its stops/members are gone (ON DELETE CASCADE), so drop their
-    // cache entries too, not just the list.
-    onSuccess: (_data, tourId) => {
-      queryClient.invalidateQueries({ queryKey: toursKey });
-      queryClient.invalidateQueries({ queryKey: tourKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.shows.list(tourId) });
-      invalidateCrossings(queryClient, session?.user.id);
-    },
+  const mutation = useMutation<void, Error, DeleteTourVars>({
+    mutationKey: mutationKeys.tours.delete,
   });
+  return {
+    ...mutation,
+    submit: (tourId: string) => {
+      if (!session) throw new Error('You must be signed in to delete a tour');
+      mutation.mutate({ tourId, userId: session.user.id });
+    },
+  };
 }
 
 export function useTourMembers(tourId: string) {

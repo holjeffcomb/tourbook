@@ -86,7 +86,7 @@ export function VenueDetailScreen() {
             Who&apos;s played here
           </Text>
           <Text color="textMuted" style={styles.hint}>
-            From tours you can see. Friends are listed first.
+            From tours you can see. Connections are listed first.
           </Text>
 
           {playersQuery.isLoading ? (
@@ -113,7 +113,7 @@ export function VenueDetailScreen() {
                   <View style={styles.rowText}>
                     <Text variant="body">
                       {label}
-                      {player.isFriend && !isYou ? ' · Friend' : ''}
+                      {player.isFriend && !isYou ? ' · Connection' : ''}
                     </Text>
                     {!!profileHandle({ username: player.username }) && !isYou && (
                       <Text variant="caption" color="textMuted">

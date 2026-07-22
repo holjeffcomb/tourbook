@@ -158,6 +158,8 @@ export type VenueFields = {
 };
 
 export type CreateShowInput = VenueFields & {
+  // Client-generated so the write is idempotent on replay (offline queue).
+  id?: string;
   userId: string;
   tourId: string;
   date: string;
@@ -201,17 +203,23 @@ async function resolveShowLocation(input: VenueFields & { userId: string }) {
 }
 
 export async function createShow(input: CreateShowInput): Promise<{ id: string }> {
+  // Geocoding runs here so it happens at sync time (see resolveShowLocation).
   const location = await resolveShowLocation(input);
 
+  // `upsert` on the client-generated id makes replay idempotent (no duplicate row).
   const { data, error } = await supabase
     .from('shows')
-    .insert({
-      tour_id: input.tourId,
-      created_by: input.userId,
-      date: input.date,
-      kind: 'show',
-      ...location,
-    })
+    .upsert(
+      {
+        ...(input.id ? { id: input.id } : {}),
+        tour_id: input.tourId,
+        created_by: input.userId,
+        date: input.date,
+        kind: 'show',
+        ...location,
+      },
+      { onConflict: 'id' },
+    )
     .select('id')
     .single();
 
@@ -248,6 +256,9 @@ export type OffDayFields = {
 };
 
 export type CreateOffDayInput = OffDayFields & {
+  // Client-generated so the write is idempotent on replay (offline queue). When
+  // omitted (rare) the DB assigns one.
+  id?: string;
   userId: string;
   tourId: string;
   date: string;
@@ -288,18 +299,28 @@ async function resolveOffLocation(input: OffDayFields) {
 }
 
 export async function createOffDay(input: CreateOffDayInput): Promise<{ id: string }> {
+  // Geocoding runs here (not on the client at enqueue time) so it happens at
+  // sync time with a live connection — an off day queued offline resolves its
+  // pin/country when it actually reaches the server.
   const location = await resolveOffLocation(input);
 
+  // `upsert` on the client-generated id (the table PK) makes replay idempotent:
+  // if the row already synced, a re-run updates it in place rather than
+  // inserting a duplicate. `id` is only sent when provided.
   const { data, error } = await supabase
     .from('shows')
-    .insert({
-      tour_id: input.tourId,
-      created_by: input.userId,
-      venue_id: null,
-      date: input.date,
-      kind: 'off',
-      ...location,
-    })
+    .upsert(
+      {
+        ...(input.id ? { id: input.id } : {}),
+        tour_id: input.tourId,
+        created_by: input.userId,
+        venue_id: null,
+        date: input.date,
+        kind: 'off',
+        ...location,
+      },
+      { onConflict: 'id' },
+    )
     .select('id')
     .single();
 

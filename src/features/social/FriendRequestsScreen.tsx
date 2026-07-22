@@ -28,7 +28,7 @@ export function FriendRequestsScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title="Friend requests" />
+      <ScreenHeader title="Connection requests" />
 
       <QueryBoundary
         isLoading={pendingQuery.isLoading}

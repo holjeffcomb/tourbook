@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import { listMemberTours } from '@/features/tours/api';
 
 export type Profile = {
   id: string;
@@ -59,8 +58,4 @@ export async function searchProfiles(term: string, excludeUserId?: string): Prom
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
-}
-
-export function listPublicToursForUser(userId: string) {
-  return listMemberTours(userId, { publicOnly: true });
 }

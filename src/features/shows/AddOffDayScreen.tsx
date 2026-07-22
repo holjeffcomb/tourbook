@@ -22,7 +22,9 @@ export function AddOffDayScreen() {
       dateAnchor={dateAnchor}
       defaultValues={{ date: '', label: '', city: '', latitude: null, longitude: null, address: null }}
       onSubmit={async (values) => {
-        await createOffDay.mutateAsync(values);
+        // Fire-and-forget: offline the write is queued (optimistically shown) and
+        // syncs on reconnect; we navigate back immediately rather than await.
+        createOffDay.submit(values);
         router.back();
       }}
     />

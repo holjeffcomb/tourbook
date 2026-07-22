@@ -172,7 +172,7 @@ export function NearMissDetailScreen() {
     >
       {!areFriendsLoading && !areFriends ? (
         <View style={styles.center}>
-          <Text color="textMuted">Crossed paths are available for friends only.</Text>
+          <Text color="textMuted">Crossed paths are available for connections only.</Text>
           <Button title="Go back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : isLoading ? (

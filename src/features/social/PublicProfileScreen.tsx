@@ -4,7 +4,7 @@ import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
-import { useProfile, usePublicToursForUser } from '@/features/profile/queries';
+import { useProfile } from '@/features/profile/queries';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import {
   useAreFriends,
@@ -27,7 +27,6 @@ export function PublicProfileScreen() {
   const isSelf = session?.user.id === id;
 
   const profileQuery = useProfile(id);
-  const publicToursQuery = usePublicToursForUser(id);
   const friendshipQuery = useFriendshipWith(id);
   const areFriendsQuery = useAreFriends(id);
   const visibleToursQuery = useVisibleToursForUser(id, !!areFriendsQuery.data);
@@ -39,9 +38,9 @@ export function PublicProfileScreen() {
   const friendship = friendshipQuery.data;
   const isFriend = !!areFriendsQuery.data;
 
-  const toursToShow = isFriend
-    ? (visibleToursQuery.data ?? [])
-    : (publicToursQuery.data ?? []);
+  // Tours are only visible to connections. Broader public/published views are a future
+  // Publishing-phase concern (see docs/design/social-model.md) — non-connections see none.
+  const toursToShow = isFriend ? (visibleToursQuery.data ?? []) : [];
 
   return (
     <Screen>
@@ -89,7 +88,7 @@ export function PublicProfileScreen() {
                     }
                   />
                   <Button
-                    title="Unfriend"
+                    title="Remove connection"
                     variant="secondary"
                     onPress={() => unfriend.mutate(friendship.id)}
                     loading={unfriend.isPending}
@@ -111,7 +110,7 @@ export function PublicProfileScreen() {
                 />
               ) : (
                 <Button
-                  title="Add friend"
+                  title="Connect"
                   onPress={() => sendRequest.mutate(id)}
                   loading={sendRequest.isPending}
                 />
@@ -119,41 +118,43 @@ export function PublicProfileScreen() {
             </View>
           )}
 
-          <Text variant="heading">
-            {isFriend ? 'Tours you can see' : 'Public tours'}
-          </Text>
-          {(isFriend ? visibleToursQuery.isLoading : publicToursQuery.isLoading) ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : toursToShow.length === 0 ? (
-            <Text color="textMuted">No tours to show.</Text>
-          ) : (
-            toursToShow.map((tour) => {
-              const dateRange = formatDateRange(tour.start_date, tour.end_date);
-              return (
-                <Pressable
-                  key={tour.id}
-                  onPress={() => router.push({ pathname: '/tours/[id]', params: { id: tour.id } })}
-                  style={({ pressed }) => [styles.tourRow, pressed && styles.pressed]}
-                >
-                  <Text variant="body">{tour.act.name}</Text>
-                  {!!tour.title && (
-                    <Text variant="caption" color="textMuted">
-                      {tour.title}
-                    </Text>
-                  )}
-                  {!!dateRange && (
-                    <Text variant="caption" color="textMuted">
-                      {dateRange}
-                    </Text>
-                  )}
-                  {!!tour.myRole && (
-                    <Text variant="caption" color="textMuted">
-                      {tour.myRole}
-                    </Text>
-                  )}
-                </Pressable>
-              );
-            })
+          {isFriend && (
+            <>
+              <Text variant="heading">Tours you can see</Text>
+              {visibleToursQuery.isLoading ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : toursToShow.length === 0 ? (
+                <Text color="textMuted">No tours to show.</Text>
+              ) : (
+                toursToShow.map((tour) => {
+                  const dateRange = formatDateRange(tour.start_date, tour.end_date);
+                  return (
+                    <Pressable
+                      key={tour.id}
+                      onPress={() => router.push({ pathname: '/tours/[id]', params: { id: tour.id } })}
+                      style={({ pressed }) => [styles.tourRow, pressed && styles.pressed]}
+                    >
+                      <Text variant="body">{tour.act.name}</Text>
+                      {!!tour.title && (
+                        <Text variant="caption" color="textMuted">
+                          {tour.title}
+                        </Text>
+                      )}
+                      {!!dateRange && (
+                        <Text variant="caption" color="textMuted">
+                          {dateRange}
+                        </Text>
+                      )}
+                      {!!tour.myRole && (
+                        <Text variant="caption" color="textMuted">
+                          {tour.myRole}
+                        </Text>
+                      )}
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
           )}
         </ScrollView>
       )}

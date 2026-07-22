@@ -115,13 +115,13 @@ export function SettingsScreen() {
           <>
             <SettingsRow label="Find people" onPress={() => router.push('/people')} />
             <SettingsRow
-              label="Friend requests"
+              label="Connection requests"
               detail={incomingCount > 0 ? `${incomingCount} waiting` : undefined}
               onPress={() => router.push('/people/requests')}
             />
             <SettingsRow
-              label="Friends"
-              detail={friendsQuery.data ? `${friendsQuery.data.length} friends` : undefined}
+              label="Connections"
+              detail={friendsQuery.data ? `${friendsQuery.data.length} connections` : undefined}
               onPress={() => router.push('/people/friends')}
             />
             {crossedPaths.count > 0 && (

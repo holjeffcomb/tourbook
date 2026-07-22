@@ -45,7 +45,8 @@ export function EditTourScreen() {
     title: tour.title ?? '',
     startDate: tour.start_date,
     endDate: tour.end_date,
-    visibility: tour.visibility,
+    // 'public' is retired; any legacy value maps to Private in the picker.
+    visibility: tour.visibility === 'public' ? 'private' : tour.visibility,
   };
 
   return (
@@ -54,7 +55,7 @@ export function EditTourScreen() {
       submitLabel="Save changes"
       defaultValues={defaultValues}
       onSubmit={async (values) => {
-        await updateTour.mutateAsync(values);
+        updateTour.submit(values);
         router.back();
       }}
     />

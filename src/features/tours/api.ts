@@ -1,6 +1,6 @@
-import { getOrCreateAct } from '@/features/acts/api';
 import type { Database } from '@/lib/database.types';
 import { supabase } from '@/lib/supabase';
+import { newId } from '@/lib/uuid';
 
 export type TourVisibility = Database['public']['Enums']['visibility'];
 
@@ -26,13 +26,9 @@ export const tourSelect =
 /**
  * Loads the tours a user is a member of, annotated with their role. Used for the
  * current user (all their tours) and for other users (RLS narrows the rows to
- * what the viewer may see); `publicOnly` further restricts to public tours for
- * public profiles. Single source of truth so the tour-list shape can't drift.
+ * what the viewer may see). Single source of truth so the tour-list shape can't drift.
  */
-export async function listMemberTours(
-  userId: string,
-  opts: { publicOnly?: boolean } = {},
-): Promise<MyTour[]> {
+export async function listMemberTours(userId: string): Promise<MyTour[]> {
   const { data, error } = await supabase
     .from('tour_members')
     .select(`role, tour:tours(${tourSelect})`)
@@ -41,7 +37,7 @@ export async function listMemberTours(
 
   const rows = (data ?? []) as unknown as { role: string | null; tour: TourWithAct | null }[];
   return rows
-    .filter((row) => row.tour && (!opts.publicOnly || row.tour.visibility === 'public'))
+    .filter((row) => row.tour)
     .map((row) => ({ ...(row.tour as TourWithAct), myRole: row.role }))
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
@@ -57,6 +53,9 @@ export async function getTour(id: string): Promise<TourWithAct> {
 }
 
 export type CreateTourInput = {
+  // Client-generated tour id; makes offline replay idempotent (also used to
+  // navigate to the new tour before it syncs).
+  id?: string;
   userId: string;
   actName: string;
   // When the user picked an existing act, its id is carried through so the tour
@@ -69,30 +68,27 @@ export type CreateTourInput = {
   visibility?: TourVisibility;
 };
 
+// Creates the tour + the creator's membership in ONE server-side transaction via
+// the create_tour_with_membership RPC. A plain two-insert sequence could leave a
+// partial record (tour with no membership) if interrupted mid-replay; the RPC is
+// all-or-nothing and idempotent on the client-generated id. Act resolution also
+// happens server-side so the whole action is offline-replayable (no client
+// getOrCreateAct network call). See docs/design/offline-write-support.md.
 export async function createTour(input: CreateTourInput): Promise<{ id: string }> {
-  const actId = input.actId ?? (await getOrCreateAct(input.actName, input.userId));
-
-  const { data, error } = await supabase
-    .from('tours')
-    .insert({
-      act_id: actId,
-      created_by: input.userId,
-      title: input.title?.trim() || null,
-      start_date: input.startDate ?? null,
-      end_date: input.endDate ?? null,
-      visibility: input.visibility ?? 'public',
-    })
-    .select('id')
-    .single();
+  const tourId = input.id ?? newId();
+  const { data, error } = await supabase.rpc('create_tour_with_membership', {
+    p_tour_id: tourId,
+    p_act_id: input.actId ?? null,
+    p_act_name: input.actName,
+    p_title: input.title ?? null,
+    p_start_date: input.startDate ?? null,
+    p_end_date: input.endDate ?? null,
+    // Default Private ('public' is retired — see docs/design/social-model.md).
+    p_visibility: input.visibility ?? 'private',
+    p_role: input.role ?? null,
+  });
   if (error) throw error;
-
-  // The creator is automatically the first member; their role lives here.
-  const { error: memberError } = await supabase
-    .from('tour_members')
-    .insert({ tour_id: data.id, user_id: input.userId, role: input.role?.trim() || null });
-  if (memberError) throw memberError;
-
-  return data;
+  return { id: (data as string | null) ?? tourId };
 }
 
 export type UpdateTourInput = {
@@ -103,22 +99,24 @@ export type UpdateTourInput = {
   startDate?: string | null;
   endDate?: string | null;
   visibility?: TourVisibility;
+  // The caller's own role on the tour, updated in the same transaction.
+  role?: string | null;
 };
 
-// Updates the shared tour's details. Only the creator passes RLS.
+// Updates the shared tour's details + the caller's role atomically via the
+// update_tour_with_role RPC (only the creator may change the tour; enforced in the
+// function). Act resolution is server-side so the edit is offline-replayable.
 export async function updateTour(input: UpdateTourInput): Promise<void> {
-  const actId = await getOrCreateAct(input.actName, input.userId);
-
-  const { error } = await supabase
-    .from('tours')
-    .update({
-      act_id: actId,
-      title: input.title?.trim() || null,
-      start_date: input.startDate ?? null,
-      end_date: input.endDate ?? null,
-      ...(input.visibility ? { visibility: input.visibility } : {}),
-    })
-    .eq('id', input.tourId);
+  const { error } = await supabase.rpc('update_tour_with_role', {
+    p_tour_id: input.tourId,
+    p_act_name: input.actName,
+    p_title: input.title ?? null,
+    p_start_date: input.startDate ?? null,
+    p_end_date: input.endDate ?? null,
+    // null → keep the tour's current visibility (coalesced server-side).
+    p_visibility: input.visibility ?? null,
+    p_role: input.role ?? null,
+  });
   if (error) throw error;
 }
 
@@ -213,28 +211,24 @@ export type TourSearchResult = {
 };
 
 // Existing tours for an act, so users join instead of creating duplicates.
+//
+// Goes through the `search_tours_by_act` catalog RPC (SECURITY DEFINER) rather than a direct
+// `tours` read: under the social model tours are Private/Connections, so a direct read would
+// hide tours the viewer isn't already on and silently reintroduce duplicates. The RPC exposes
+// only non-sensitive catalog metadata (existence, title, dates, member count) and gates the
+// creator's name to tours the viewer may already see — no roster enumeration.
 export async function searchToursByAct(actId: string): Promise<TourSearchResult[]> {
-  const { data, error } = await supabase
-    .from('tours')
-    .select(
-      'id, title, start_date, end_date, created_at, act:acts(id, name), creator:profiles!created_by(display_name), members:tour_members(count)',
-    )
-    .eq('act_id', actId)
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.rpc('search_tours_by_act', { p_act_id: actId });
   if (error) throw error;
 
-  type Row = Omit<TourSearchResult, 'memberCount' | 'creator'> & {
-    creator: { display_name: string | null } | null;
-    members: { count: number }[] | null;
-  };
-  return ((data ?? []) as unknown as Row[]).map((row) => ({
+  return (data ?? []).map((row) => ({
     id: row.id,
     title: row.title,
     start_date: row.start_date,
     end_date: row.end_date,
     created_at: row.created_at,
-    act: row.act,
-    creator: row.creator ?? null,
-    memberCount: row.members?.[0]?.count ?? 0,
+    act: { id: row.act_id, name: row.act_name },
+    creator: row.creator_display_name ? { display_name: row.creator_display_name } : null,
+    memberCount: row.member_count ?? 0,
   }));
 }
