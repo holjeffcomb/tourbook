@@ -119,7 +119,7 @@ export function CompareScreen() {
 
       {!areFriends.isLoading && !areFriends.data ? (
         <View style={styles.center}>
-          <Text color="textMuted">Comparison is available for friends only.</Text>
+          <Text color="textMuted">Comparison is available for connections only.</Text>
           <Button title="Go back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : isLoading ? (

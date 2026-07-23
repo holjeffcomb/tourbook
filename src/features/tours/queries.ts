@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { useAuth } from '@/features/auth/AuthContext';
+import { pickActiveTour } from '@/features/tours/tourMode';
+import { dateToISO } from '@/lib/date';
+import type { CreateTourVars, DeleteTourVars, UpdateTourVars } from '@/lib/offline/mutationDefaults';
+import { mutationKeys, queryKeys } from '@/lib/queryKeys';
+import { newId } from '@/lib/uuid';
 import {
-  createTour,
-  deleteTour,
   getMyMembership,
   getTour,
   joinTour,
@@ -10,9 +14,8 @@ import {
   listMyTours,
   listTourMembers,
   searchToursByAct,
-  updateMyRole,
-  updateTour,
   type CreateTourInput,
+  type TourVisibility,
 } from '@/features/tours/api';
 import {
   createImportedTour,
@@ -21,11 +24,19 @@ import {
   type ParsedTour,
 } from '@/features/tours/import';
 
-export const toursKey = ['tours'] as const;
-export const tourKey = (id: string) => ['tours', id] as const;
-export const membershipKey = (tourId: string) => ['tours', tourId, 'membership'] as const;
-export const membersKey = (tourId: string) => ['tours', tourId, 'members'] as const;
-export const tourSearchKey = (actId: string) => ['tours', 'search', actId] as const;
+export const toursKey = queryKeys.tours.all;
+export const tourKey = queryKeys.tours.detail;
+export const membershipKey = queryKeys.tours.membership;
+export const membersKey = queryKeys.tours.members;
+export const tourSearchKey = queryKeys.tours.searchByAct;
+
+// Changing my tours/memberships can change my server-computed crossed paths.
+function invalidateCrossings(
+  queryClient: ReturnType<typeof useQueryClient>,
+  userId: string | undefined,
+) {
+  if (userId) queryClient.invalidateQueries({ queryKey: queryKeys.friends.crossings(userId) });
+}
 
 export function useTours() {
   const { session } = useAuth();
@@ -36,6 +47,21 @@ export function useTours() {
     queryFn: () => listMyTours(userId as string),
     enabled: !!userId,
   });
+}
+
+/**
+ * Detects "Tour Mode": the tour (if any) whose dates contain today, so the app
+ * can automatically focus the user on where they are right now. Derived from
+ * `useTours` + the current date — no separate query or user toggle.
+ */
+export function useActiveTour() {
+  const query = useTours();
+  const todayISO = dateToISO(new Date());
+  const activeTour = useMemo(
+    () => (query.data ? pickActiveTour(query.data, todayISO) : null),
+    [query.data, todayISO],
+  );
+  return { activeTour, todayISO, isLoading: query.isLoading };
 }
 
 export function useTour(id: string) {
@@ -56,17 +82,26 @@ export function useMyMembership(tourId: string) {
   });
 }
 
-export function useCreateTour() {
-  const queryClient = useQueryClient();
-  const { session } = useAuth();
+// Offline-capable (transactional RPC + optimistic cache). Handlers live in
+// `registerMutationDefaults` keyed by `mutationKeys.tours.*`; hooks build the
+// self-contained variables. `submit()` fires without awaiting (see shows/queries.ts
+// for why); create returns the client tour id so the caller can navigate immediately.
+type CreateTourValues = Omit<CreateTourInput, 'userId' | 'id'>;
 
-  return useMutation({
-    mutationFn: (values: Omit<CreateTourInput, 'userId'>) => {
-      if (!session) throw new Error('You must be signed in to create a tour');
-      return createTour({ ...values, userId: session.user.id });
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
+export function useCreateTour() {
+  const { session } = useAuth();
+  const mutation = useMutation<{ id: string }, Error, CreateTourVars>({
+    mutationKey: mutationKeys.tours.create,
   });
+  return {
+    ...mutation,
+    submit: (values: CreateTourValues): string => {
+      if (!session) throw new Error('You must be signed in to create a tour');
+      const vars: CreateTourVars = { ...values, userId: session.user.id, id: newId() };
+      mutation.mutate(vars);
+      return vars.id;
+    },
+  };
 }
 
 type UpdateTourValues = {
@@ -75,17 +110,19 @@ type UpdateTourValues = {
   title?: string;
   startDate?: string | null;
   endDate?: string | null;
-  visibility?: 'public' | 'friends' | 'private';
+  visibility?: TourVisibility;
 };
 
 export function useUpdateTour(tourId: string) {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
-
-  return useMutation({
-    mutationFn: async (values: UpdateTourValues) => {
+  const mutation = useMutation<void, Error, UpdateTourVars>({
+    mutationKey: mutationKeys.tours.update,
+  });
+  return {
+    ...mutation,
+    submit: (values: UpdateTourValues) => {
       if (!session) throw new Error('You must be signed in to edit a tour');
-      await updateTour({
+      mutation.mutate({
         tourId,
         userId: session.user.id,
         actName: values.actName,
@@ -93,15 +130,10 @@ export function useUpdateTour(tourId: string) {
         startDate: values.startDate,
         endDate: values.endDate,
         visibility: values.visibility,
+        role: values.role ?? null,
       });
-      await updateMyRole(tourId, session.user.id, values.role ?? null);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: toursKey });
-      queryClient.invalidateQueries({ queryKey: tourKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
-    },
-  });
+  };
 }
 
 export function useParseTour() {
@@ -115,7 +147,17 @@ export function useCreateImportedTour() {
   const { session } = useAuth();
 
   return useMutation({
+    // Import is online-only by design (Stage 2.5 — parse + venue/geocode need network). `'always'`
+    // stops TanStack Query from silently *pausing* the mutation while offline (the default 'online'
+    // in-memory queue, which isn't persisted and would just hang the confirm); instead it runs and
+    // fails fast so ImportTourScreen surfaces the error. The commit itself is atomic + idempotent,
+    // so retrying a flaky commit is safe.
+    networkMode: 'always',
+    // Variables carry the stable client-generated ids (tour `id` + each `stop.id`, minted once
+    // during review) — the same pattern as `CreateTourVars`. Re-invoking with the same variables
+    // re-sends the same ids, so the idempotent RPC converges to one tour + set of shows.
     mutationFn: (values: {
+      id: string;
       actName: string;
       actId?: string | null;
       tourTitle: string | null;
@@ -124,17 +166,25 @@ export function useCreateImportedTour() {
       if (!session) throw new Error('You must be signed in to import a tour');
       return createImportedTour({ ...values, userId: session.user.id });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toursKey });
+      invalidateCrossings(queryClient, session?.user.id);
+    },
   });
 }
 
 export function useDeleteTour() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (tourId: string) => deleteTour(tourId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toursKey }),
+  const { session } = useAuth();
+  const mutation = useMutation<void, Error, DeleteTourVars>({
+    mutationKey: mutationKeys.tours.delete,
   });
+  return {
+    ...mutation,
+    submit: (tourId: string) => {
+      if (!session) throw new Error('You must be signed in to delete a tour');
+      mutation.mutate({ tourId, userId: session.user.id });
+    },
+  };
 }
 
 export function useTourMembers(tourId: string) {
@@ -155,10 +205,12 @@ export function useTourSearch(actId: string | null) {
 
 function useInvalidateMembership(tourId: string) {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
   return () => {
     queryClient.invalidateQueries({ queryKey: toursKey });
     queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
     queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
+    invalidateCrossings(queryClient, session?.user.id);
   };
 }
 
@@ -189,6 +241,7 @@ export function useJoinTourById() {
       queryClient.invalidateQueries({ queryKey: toursKey });
       queryClient.invalidateQueries({ queryKey: membershipKey(tourId) });
       queryClient.invalidateQueries({ queryKey: membersKey(tourId) });
+      invalidateCrossings(queryClient, session?.user.id);
     },
   });
 }

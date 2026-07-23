@@ -10,11 +10,18 @@ import { useProfile } from '@/features/profile/queries';
 import { NearMissListCard } from '@/features/social/NearMissListCard';
 import { profileLabel } from '@/features/social/labels';
 import { useFriendNearMisses } from '@/features/social/useFriendNearMisses';
+import { useUpcomingCrossedPaths } from '@/features/social/useUpcomingCrossedPaths';
 import type { NearMiss } from '@/features/stats/types';
 import { formatShowDate } from '@/lib/date';
 import { formatMiles } from '@/lib/geo';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
+
+/** Expo Router may hand back `string | string[]` for a search param. */
+function paramValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
 
 function kindLabel(kind: NearMiss['kind']) {
   if (kind === 'same_venue') return 'Same venue';
@@ -69,30 +76,61 @@ export function NearMissDetailScreen() {
   const styles = useThemedStyles(createStyles);
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id, stopA, stopB } = useLocalSearchParams<{
+  const params = useLocalSearchParams<{
     id: string;
     stopA: string;
     stopB: string;
   }>();
+  const id = paramValue(params.id) ?? '';
+  const stopA = paramValue(params.stopA);
+  const stopB = paramValue(params.stopB);
   const router = useRouter();
   const friendProfile = useProfile(id);
+  // Same source as the global upcoming list (server RPC). Prefer this so a tap
+  // from that list doesn't depend on the heavier per-friend client recompute.
+  const crossedPaths = useUpcomingCrossedPaths();
   const {
     areFriends,
     areFriendsLoading,
-    isLoading,
+    isLoading: friendMissesLoading,
     findByPair,
     upcoming,
     isUpcoming,
   } = useFriendNearMisses(id);
 
   const theirName = profileLabel(friendProfile.data);
-  const nearMiss = stopA && stopB ? findByPair(stopA, stopB) : null;
+  const fromServer =
+    stopA && stopB
+      ? (crossedPaths.items.find(
+          (item) =>
+            item.friendId === id &&
+            item.nearMiss.stopA.stopId === stopA &&
+            item.nearMiss.stopB.stopId === stopB,
+        )?.nearMiss ?? null)
+      : null;
+  // Fallback for the per-friend Crossed paths screen (includes past overlaps the
+  // upcoming RPC list does not keep).
+  const nearMiss =
+    fromServer ?? (stopA && stopB ? findByPair(stopA, stopB) : null);
+
+  const friendUpcomingFromServer = useMemo(
+    () =>
+      crossedPaths.items
+        .filter((item) => item.friendId === id)
+        .map((item) => item.nearMiss),
+    [crossedPaths.items, id],
+  );
+  const upcomingSource =
+    friendUpcomingFromServer.length > 0 ? friendUpcomingFromServer : upcoming;
   const upcomingOthers = nearMiss
-    ? upcoming.filter(
+    ? upcomingSource.filter(
         (n) =>
           !(n.stopA.stopId === nearMiss.stopA.stopId && n.stopB.stopId === nearMiss.stopB.stopId),
       )
-    : upcoming;
+    : upcomingSource;
+
+  const isLoading =
+    !nearMiss && (crossedPaths.isLoading || friendMissesLoading);
 
   const scene = useMemo<MapScene>(() => {
     const contentInsets = { top: insets.top + 56, left: spacing.md, right: spacing.md };
@@ -134,7 +172,7 @@ export function NearMissDetailScreen() {
     >
       {!areFriendsLoading && !areFriends ? (
         <View style={styles.center}>
-          <Text color="textMuted">Crossed paths are available for friends only.</Text>
+          <Text color="textMuted">Crossed paths are available for connections only.</Text>
           <Button title="Go back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : isLoading ? (

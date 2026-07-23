@@ -58,6 +58,21 @@ export type RouteLine = {
   color?: string;
 };
 
+/**
+ * One step in the Lifetime "ambient" cinematic loop: the camera dissolves in at
+ * `center`/`zoom`, then slowly pans to `driftTo` (same zoom) over `dwellMs`.
+ * Built by the pure `ambientPlan` module; played by `useAmbientCamera`.
+ */
+export type AmbientFrame = {
+  center: Coord;
+  zoom: number;
+  driftTo: Coord;
+  dwellMs: number;
+};
+
+/** An ordered, looping itinerary of ambient camera frames (one per cluster). */
+export type AmbientPlan = { frames: AmbientFrame[] };
+
 /** Which Lifetime overlay is showing. */
 export type PlacesMapMode = 'places' | 'routes';
 
@@ -113,6 +128,12 @@ export type MapScene = {
   markers?: SceneMarker[];
   /** Coordinates the camera should frame. Falls back to places/markers/lines. */
   focus?: Coord[];
+  /**
+   * When set, the stage plays this ambient cinematic loop instead of the static
+   * framing — slowly panning across clusters and dissolving between them. Paused
+   * automatically while the user interacts or a place is selected.
+   */
+  ambient?: AmbientPlan;
   /** Zoom used when there is a single focus point. */
   singleZoom?: number;
   /** Camera animation duration (ms) for in-scene re-frames. Defaults to 700. */
@@ -139,6 +160,8 @@ export type MapScene = {
   onSelectPlace?: (id: string | null) => void;
   /** Fired when a numbered tour stop marker is tapped (tour detail). */
   onSelectStop?: (id: string) => void;
+  /** Fired when a custom pin (you / them / venue) is tapped. */
+  onSelectMarker?: (marker: SceneMarker) => void;
   /** Fired when the user taps empty map (not a marker) — clear floating panes. */
   onPressMapBackground?: () => void;
   /**

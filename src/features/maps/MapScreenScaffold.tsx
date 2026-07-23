@@ -11,7 +11,11 @@ import {
 } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import { BottomSheet, type BottomSheetHandle } from '@/components/BottomSheet';
+import {
+  BottomSheet,
+  BOTTOM_SHEET_INSET,
+  type BottomSheetHandle,
+} from '@/components/BottomSheet';
 import { Text } from '@/components/Text';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useTheme, useThemedStyles } from '@/theme/ThemeProvider';
@@ -81,7 +85,8 @@ export function MapScreenScaffold({
   }, [height, snapFractions]);
 
   const reservedFor = useCallback(
-    (snapHeight: number) => Math.min(snapHeight, Math.round(height * 0.5)),
+    (snapHeight: number) =>
+      Math.min(snapHeight + BOTTOM_SHEET_INSET, Math.round(height * 0.5)),
     [height],
   );
 

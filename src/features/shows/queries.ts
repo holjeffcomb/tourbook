@@ -1,21 +1,37 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
+import type {
+  CreateOffDayVars,
+  CreateShowVars,
+  DeleteStopVars,
+  UpdateOffDayVars,
+  UpdateShowVars,
+} from '@/lib/offline/mutationDefaults';
+import { mutationKeys, queryKeys } from '@/lib/queryKeys';
+import { newId } from '@/lib/uuid';
 import {
-  createOffDay,
-  createShow,
-  deleteStop,
   getStop,
   listStops,
-  updateOffDay,
-  updateShow,
   type CreateOffDayInput,
   type CreateShowInput,
   type UpdateOffDayInput,
   type UpdateShowInput,
 } from '@/features/shows/api';
 
-export const showsKey = (tourId: string) => ['shows', tourId] as const;
-export const showKey = (showId: string) => ['show', showId] as const;
+export const showsKey = queryKeys.shows.list;
+export const showKey = queryKeys.shows.detail;
+
+// These mutations are offline-capable: the `mutationFn` and optimistic / rollback /
+// invalidation handlers live in `registerMutationDefaults`, keyed by a stable
+// `mutationKey`, so the exact same behavior runs whether the write happens live or
+// is replayed from disk after a cold start. Each hook only builds the
+// self-contained variables (client id + userId + tourId) the queued mutation needs.
+//
+// `submit()` fires the mutation and returns WITHOUT awaiting the network: offline,
+// TanStack pauses the mutation and the promise wouldn't resolve until reconnect, so
+// awaiting would block navigation. Callers navigate immediately; the optimistic
+// update (and rollback on failure) keeps the UI correct. Creates return the client
+// id so the caller can navigate to the new row before it syncs.
 
 export function useStops(tourId: string) {
   return useQuery({
@@ -31,69 +47,81 @@ export function useStop(stopId: string) {
   });
 }
 
-export function useCreateShow(tourId: string) {
-  const queryClient = useQueryClient();
-  const { session } = useAuth();
+type CreateShowValues = Omit<CreateShowInput, 'userId' | 'tourId' | 'id'>;
+type CreateOffDayValues = Omit<CreateOffDayInput, 'userId' | 'tourId' | 'id'>;
+type UpdateShowValues = Omit<UpdateShowInput, 'userId' | 'showId'>;
+type UpdateOffDayValues = Omit<UpdateOffDayInput, 'userId' | 'stopId'>;
 
-  return useMutation({
-    mutationFn: (values: Omit<CreateShowInput, 'userId' | 'tourId'>) => {
-      if (!session) throw new Error('You must be signed in to add a show');
-      return createShow({ ...values, tourId, userId: session.user.id });
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+export function useCreateShow(tourId: string) {
+  const { session } = useAuth();
+  const mutation = useMutation<{ id: string }, Error, CreateShowVars>({
+    mutationKey: mutationKeys.shows.create,
   });
+  return {
+    ...mutation,
+    submit: (values: CreateShowValues): string => {
+      if (!session) throw new Error('You must be signed in to add a show');
+      const vars: CreateShowVars = { ...values, tourId, userId: session.user.id, id: newId() };
+      mutation.mutate(vars);
+      return vars.id;
+    },
+  };
 }
 
 export function useUpdateShow(tourId: string, showId: string) {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
-
-  return useMutation({
-    mutationFn: (values: Omit<UpdateShowInput, 'userId' | 'showId'>) => {
-      if (!session) throw new Error('You must be signed in to edit a show');
-      return updateShow({ ...values, showId, userId: session.user.id });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: showKey(showId) });
-    },
+  const mutation = useMutation<void, Error, UpdateShowVars>({
+    mutationKey: mutationKeys.shows.update,
   });
+  return {
+    ...mutation,
+    submit: (values: UpdateShowValues) => {
+      if (!session) throw new Error('You must be signed in to edit a show');
+      mutation.mutate({ ...values, showId, tourId, userId: session.user.id });
+    },
+  };
 }
 
 export function useCreateOffDay(tourId: string) {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
-
-  return useMutation({
-    mutationFn: (values: Omit<CreateOffDayInput, 'userId' | 'tourId'>) => {
-      if (!session) throw new Error('You must be signed in to add an off day');
-      return createOffDay({ ...values, tourId, userId: session.user.id });
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+  const mutation = useMutation<{ id: string }, Error, CreateOffDayVars>({
+    mutationKey: mutationKeys.offDays.create,
   });
+  return {
+    ...mutation,
+    submit: (values: CreateOffDayValues): string => {
+      if (!session) throw new Error('You must be signed in to add an off day');
+      const vars: CreateOffDayVars = { ...values, tourId, userId: session.user.id, id: newId() };
+      mutation.mutate(vars);
+      return vars.id;
+    },
+  };
 }
 
 export function useUpdateOffDay(tourId: string, stopId: string) {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
-
-  return useMutation({
-    mutationFn: (values: Omit<UpdateOffDayInput, 'userId' | 'stopId'>) => {
-      if (!session) throw new Error('You must be signed in to edit an off day');
-      return updateOffDay({ ...values, stopId, userId: session.user.id });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: showsKey(tourId) });
-      queryClient.invalidateQueries({ queryKey: showKey(stopId) });
-    },
+  const mutation = useMutation<void, Error, UpdateOffDayVars>({
+    mutationKey: mutationKeys.offDays.update,
   });
+  return {
+    ...mutation,
+    submit: (values: UpdateOffDayValues) => {
+      if (!session) throw new Error('You must be signed in to edit an off day');
+      mutation.mutate({ ...values, stopId, tourId, userId: session.user.id });
+    },
+  };
 }
 
 export function useDeleteStop(tourId: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (stopId: string) => deleteStop(stopId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: showsKey(tourId) }),
+  const { session } = useAuth();
+  const mutation = useMutation<void, Error, DeleteStopVars>({
+    mutationKey: mutationKeys.stops.delete,
   });
+  return {
+    ...mutation,
+    submit: (stopId: string) => {
+      if (!session) throw new Error('You must be signed in to delete this stop');
+      mutation.mutate({ stopId, tourId, userId: session.user.id });
+    },
+  };
 }

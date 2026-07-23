@@ -59,32 +59,3 @@ export async function searchProfiles(term: string, excludeUserId?: string): Prom
   if (error) throw error;
   return data ?? [];
 }
-
-export async function listPublicToursForUser(userId: string) {
-  const { data, error } = await supabase
-    .from('tour_members')
-    .select(
-      'role, tour:tours(id, title, start_date, end_date, visibility, created_at, created_by, act:acts(id, name))',
-    )
-    .eq('user_id', userId);
-  if (error) throw error;
-
-  type Row = {
-    role: string | null;
-    tour: {
-      id: string;
-      title: string | null;
-      start_date: string | null;
-      end_date: string | null;
-      visibility: string;
-      created_at: string;
-      created_by: string | null;
-      act: { id: string; name: string };
-    } | null;
-  };
-
-  return ((data ?? []) as unknown as Row[])
-    .filter((row) => row.tour && row.tour.visibility === 'public')
-    .map((row) => ({ ...row.tour!, myRole: row.role }))
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-}

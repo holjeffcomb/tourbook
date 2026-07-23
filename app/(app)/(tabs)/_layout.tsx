@@ -31,13 +31,13 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'My Tours',
-          tabBarIcon: tabIcon('musical-notes', 'musical-notes-outline'),
+          tabBarIcon: tabIcon('map', 'map-outline'),
         }}
       />
       <Tabs.Screen
         name="friends-tours"
         options={{
-          title: "Friends' Tours",
+          title: 'Connections',
           tabBarIcon: tabIcon('people', 'people-outline'),
         }}
       />

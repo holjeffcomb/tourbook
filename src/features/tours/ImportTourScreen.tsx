@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -16,13 +16,16 @@ import { TextField } from '@/components/TextField';
 import { useCreateImportedTour, useParseTour } from '@/features/tours/queries';
 import {
   resolveImportStop,
+  resolveImportStopByAddress,
   type ImportStop,
   type ParsedTour,
   type VenueMatchConfidence,
+  type VenueMatchSource,
 } from '@/features/tours/import';
 import { VenueAutocomplete } from '@/features/venues/VenueAutocomplete';
 import { formatShowDate } from '@/lib/date';
 import { getErrorMessage } from '@/lib/errors';
+import { newId } from '@/lib/uuid';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 
@@ -39,6 +42,10 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type EditableStop = {
   key: string;
+  // Stable client-generated show id, minted once when the row is created and kept
+  // across edits/re-taps, so re-submitting the import upserts the same show row
+  // (idempotent) instead of duplicating it.
+  showId: string;
   date: string;
   venueName: string;
   city: string;
@@ -48,6 +55,12 @@ type EditableStop = {
   country?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  /** Where the match came from — 'catalog' gets its own "In your venues" badge. */
+  source?: VenueMatchSource;
+  /** Set for catalog matches so the created show reuses that exact venue row. */
+  venueId?: string | null;
+  /** Business name Mapbox lists at a resolved address, offered to adopt. */
+  mapboxName?: string | null;
   resolving?: boolean;
   /** Matched stops collapse to a compact row; expand to edit them. */
   expanded?: boolean;
@@ -58,6 +71,7 @@ function makeStop(partial: Partial<EditableStop> = {}): EditableStop {
   stopCounter += 1;
   return {
     key: `stop-${stopCounter}`,
+    showId: newId(),
     date: '',
     venueName: '',
     city: '',
@@ -97,6 +111,22 @@ function matchBadge(stop: EditableStop): {
 
   switch (stop.confidence) {
     case 'confirmed':
+      if (stop.source === 'catalog') {
+        return {
+          label: 'In your venues',
+          tone: 'ok',
+          detail: `Reused a venue you've saved before in ${stop.mapboxPlace || stop.city}.`,
+        };
+      }
+      if (stop.source === 'address') {
+        return {
+          label: 'Located by address',
+          tone: 'ok',
+          detail: stop.mapboxName
+            ? `Pinned from the address — Mapbox lists it as "${stop.mapboxName}".`
+            : `Pinned from the address in ${stop.mapboxPlace || stop.city}.`,
+        };
+      }
       return {
         label: 'Matched',
         tone: 'ok',
@@ -196,6 +226,11 @@ export function ImportTourScreen() {
   const [stops, setStops] = useState<EditableStop[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Stable tour id for this import session, minted once when a parse produces the
+  // review list. Reused across re-taps (e.g. after a failed/lost-ack commit) so the
+  // idempotent RPC converges to a single tour instead of creating a duplicate.
+  const tourIdRef = useRef<string | null>(null);
+
   const resolveStop = useCallback(async (key: string, stop: EditableStop) => {
     if (!isValidStop(stop)) return;
 
@@ -219,6 +254,9 @@ export function ImportTourScreen() {
                 country: resolved.country,
                 latitude: resolved.latitude,
                 longitude: resolved.longitude,
+                source: resolved.source,
+                venueId: resolved.venueId,
+                mapboxName: null,
                 // Keep a user-typed street; only fill when empty.
                 address: s.address.trim() ? s.address : (resolved.address ?? ''),
                 resolving: false,
@@ -229,9 +267,44 @@ export function ImportTourScreen() {
     } catch {
       setStops((prev) =>
         prev.map((s) =>
-          s.key === key ? { ...s, confidence: 'unresolved', resolving: false } : s,
+          s.key === key
+            ? { ...s, confidence: 'unresolved', source: 'none', venueId: null, resolving: false }
+            : s,
         ),
       );
+    }
+  }, []);
+
+  // Manual fallback: geocode the typed street address directly, pin it, and
+  // surface the business name Mapbox lists there. Leaves the venue name alone.
+  const resolveStopByAddress = useCallback(async (key: string, stop: EditableStop) => {
+    setStops((prev) => prev.map((s) => (s.key === key ? { ...s, resolving: true } : s)));
+    try {
+      const resolved = await resolveImportStopByAddress(stop.address, stop.city);
+      setStops((prev) =>
+        prev.map((s) =>
+          s.key === key
+            ? {
+                ...s,
+                confidence: resolved.confidence,
+                mapboxPlace: resolved.mapboxPlace,
+                country: resolved.country,
+                latitude: resolved.latitude,
+                longitude: resolved.longitude,
+                source: resolved.source,
+                venueId: resolved.venueId,
+                mapboxName: resolved.mapboxName ?? null,
+                address: resolved.address ?? s.address,
+                // Keep the card open so the located business name stays reviewable
+                // instead of collapsing the moment it's confirmed.
+                expanded: resolved.source === 'address' ? true : s.expanded,
+                resolving: false,
+              }
+            : s,
+        ),
+      );
+    } catch {
+      setStops((prev) => prev.map((s) => (s.key === key ? { ...s, resolving: false } : s)));
     }
   }, []);
 
@@ -252,6 +325,8 @@ export function ImportTourScreen() {
       setTourTitle(parsed.tourTitle ?? '');
       const editable = toEditable(parsed);
       setStops(editable);
+      // Fresh import session -> fresh stable tour id (distinct from any earlier attempt).
+      tourIdRef.current = newId();
       setPhase('review');
       void resolveAllStops(editable);
     } catch (err) {
@@ -279,6 +354,21 @@ export function ImportTourScreen() {
     [resolveStop],
   );
 
+  // Address field blur: if a street was typed, locate by that address; otherwise
+  // fall back to the normal venue-name lookup.
+  const onAddressBlur = useCallback(
+    (key: string) => {
+      setStops((prev) => {
+        const stop = prev.find((s) => s.key === key);
+        if (!stop) return prev;
+        if (stop.address.trim() && stop.city.trim()) void resolveStopByAddress(key, stop);
+        else if (isValidStop(stop)) void resolveStop(key, stop);
+        return prev;
+      });
+    },
+    [resolveStop, resolveStopByAddress],
+  );
+
   const removeStop = (key: string) => setStops((prev) => prev.filter((stop) => stop.key !== key));
   const addStop = () => setStops((prev) => [...prev, makeStop()]);
   const shiftAllYears = (delta: number) =>
@@ -302,7 +392,11 @@ export function ImportTourScreen() {
 
   const onCreate = async () => {
     setError(null);
+    // Reuse the session's stable ids so a re-tap after a failed/lost-ack commit converges to one
+    // tour + set of shows (the RPC upserts on these ids) rather than duplicating.
+    const tourId = (tourIdRef.current ??= newId());
     const payloadStops: ImportStop[] = validStops.map((stop) => ({
+      id: stop.showId,
       date: stop.date,
       venueName: stop.venueName.trim(),
       city: stop.city.trim(),
@@ -311,9 +405,11 @@ export function ImportTourScreen() {
       latitude: stop.latitude ?? null,
       longitude: stop.longitude ?? null,
       confidence: stop.confidence,
+      venueId: stop.venueId ?? null,
     }));
     try {
       const { id } = await create.mutateAsync({
+        id: tourId,
         actName: actName.trim(),
         actId: actId ?? null,
         tourTitle: tourTitle.trim() || null,
@@ -540,6 +636,9 @@ export function ImportTourScreen() {
                         updateStop(stop.key, {
                           city: value,
                           confidence: undefined,
+                          source: undefined,
+                          venueId: null,
+                          mapboxName: null,
                           latitude: null,
                           longitude: null,
                         })
@@ -556,6 +655,9 @@ export function ImportTourScreen() {
                         updateStop(stop.key, {
                           venueName: value,
                           confidence: undefined,
+                          source: undefined,
+                          venueId: null,
+                          mapboxName: null,
                           latitude: null,
                           longitude: null,
                         })
@@ -571,21 +673,41 @@ export function ImportTourScreen() {
                           longitude: longitude ?? null,
                           confidence:
                             latitude != null && longitude != null ? 'confirmed' : 'needs_review',
+                          source: 'mapbox',
+                          venueId: null,
+                          mapboxName: null,
                           mapboxPlace: city || stop.mapboxPlace,
                           resolving: false,
                         });
                       }}
                     />
                     <TextField
-                      label="Street address (optional)"
-                      placeholder="Only if Mapbox can't find the venue"
+                      label="Street address"
+                      placeholder="No venue match? Type the address to locate it"
                       value={stop.address}
                       onChangeText={(value) =>
                         updateStop(stop.key, { address: value, confidence: undefined })
                       }
-                      onBlur={() => reResolveStop(stop.key)}
+                      onBlur={() => onAddressBlur(stop.key)}
                       autoCapitalize="words"
                     />
+                    {!!stop.mapboxName && stop.mapboxName.trim() !== stop.venueName.trim() && (
+                      <Pressable
+                        onPress={() => updateStop(stop.key, { venueName: stop.mapboxName ?? '' })}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.adoptRow, pressed && styles.adoptRowPressed]}
+                      >
+                        <Text variant="caption" color="textMuted">
+                          Mapbox lists this address as{' '}
+                          <Text variant="caption" weight="semibold">
+                            {stop.mapboxName}
+                          </Text>
+                        </Text>
+                        <Text variant="caption" color="primary" weight="semibold">
+                          Use name
+                        </Text>
+                      </Pressable>
+                    )}
                     {invalid && (
                       <Text variant="caption" color="textMuted">
                         Needs a valid date, venue, and city to be saved.
@@ -644,7 +766,7 @@ const createStyles = (colors: ThemeColors) =>
     borderColor: colors.border,
     borderRadius: radius.md,
     padding: spacing.md,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.text,
     backgroundColor: colors.background,
   },
@@ -769,6 +891,21 @@ const createStyles = (colors: ThemeColors) =>
     backgroundColor: colors.surface,
   },
   matchedRowPressed: {
+    opacity: 0.6,
+  },
+  adoptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: withAlpha(colors.primary, 0.06),
+  },
+  adoptRowPressed: {
     opacity: 0.6,
   },
   matchedCheck: {

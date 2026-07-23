@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { Icon } from '@/components/Icon';
+import { QueryBoundary } from '@/components/QueryBoundary';
 import { Text } from '@/components/Text';
 import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
 import { TAB_BAR_HEIGHT, type MapScene } from '@/features/maps/mapScene';
@@ -54,7 +55,7 @@ function TourRow({
       <View style={[styles.accent, { backgroundColor: color }]} />
       <View style={styles.thumb}>
         {/* Placeholder until tours carry image thumbnails. */}
-        <Icon name="musical-notes" size={22} color="textMuted" />
+        <Icon name="map" size={22} color="textMuted" />
       </View>
       <View style={styles.rowBody}>
         <Text variant="subheading" numberOfLines={1}>
@@ -109,9 +110,9 @@ export function FriendsToursScreen() {
 
   const sheetHeader = (
     <View style={styles.sheetHeader}>
-      <Text variant="title">Friends&apos; Tours</Text>
+      <Text variant="title">Connections</Text>
       <Text variant="caption" color="textMuted">
-        {upcoming.length} upcoming · tours your friends are on
+        {upcoming.length} upcoming · tours your connections are on
       </Text>
     </View>
   );
@@ -138,8 +139,8 @@ export function FriendsToursScreen() {
           >
             <Text variant="body" color="primary">
               {crossedPaths.count === 1
-                ? '1 upcoming crossed path with a friend'
-                : `${crossedPaths.count} upcoming crossed paths with friends`}
+                ? '1 upcoming crossed path with a connection'
+                : `${crossedPaths.count} upcoming crossed paths with connections`}
             </Text>
             <Text variant="caption" color="textMuted">
               Tap to see who you&apos;ll be near
@@ -147,41 +148,40 @@ export function FriendsToursScreen() {
           </Pressable>
         )}
 
-        {isLoading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        ) : isError ? (
-          <View style={styles.center}>
-            <Text color="danger">Couldn&apos;t load friends&apos; tours.</Text>
-            <Button title="Retry" variant="secondary" onPress={() => refetch()} />
-          </View>
-        ) : friendCount === 0 ? (
-          <View style={styles.center}>
-            <Text variant="heading">No friends yet</Text>
-            <Text color="textMuted" style={styles.emptyHint}>
-              Add friends to see the tours they&apos;re on.
-            </Text>
-            <Button title="Find people" onPress={() => router.push('/people')} />
-          </View>
-        ) : upcoming.length === 0 ? (
-          <View style={styles.center}>
-            <Text variant="heading">No upcoming tours</Text>
-            <Text color="textMuted" style={styles.emptyHint}>
-              When friends join tours you can see, they&apos;ll show up here.
-            </Text>
-          </View>
-        ) : (
-          upcoming.map((entry, index) => (
-            <TourRow
-              key={entry.id}
-              entry={entry}
-              color={routeColorAt(index)}
-              alsoOnTour={myTourIds.has(entry.id)}
-              onPress={() => router.push({ pathname: '/tours/[id]', params: { id: entry.id } })}
-            />
-          ))
-        )}
+        <QueryBoundary
+          isLoading={isLoading}
+          isError={isError}
+          errorMessage="Couldn't load connections' tours."
+          onRetry={() => refetch()}
+          containerStyle={styles.center}
+        >
+          {friendCount === 0 ? (
+            <View style={styles.center}>
+              <Text variant="heading">No connections yet</Text>
+              <Text color="textMuted" style={styles.emptyHint}>
+                Add connections to see the tours they&apos;re on.
+              </Text>
+              <Button title="Find people" onPress={() => router.push('/people')} />
+            </View>
+          ) : upcoming.length === 0 ? (
+            <View style={styles.center}>
+              <Text variant="heading">No upcoming tours</Text>
+              <Text color="textMuted" style={styles.emptyHint}>
+                When connections join tours you can see, they&apos;ll show up here.
+              </Text>
+            </View>
+          ) : (
+            upcoming.map((entry, index) => (
+              <TourRow
+                key={entry.id}
+                entry={entry}
+                color={routeColorAt(index)}
+                alsoOnTour={myTourIds.has(entry.id)}
+                onPress={() => router.push({ pathname: '/tours/[id]', params: { id: entry.id } })}
+              />
+            ))
+          )}
+        </QueryBoundary>
       </ScrollView>
     </MapScreenScaffold>
   );

@@ -1,7 +1,9 @@
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button } from '@/components/Button';
+import { QueryBoundary } from '@/components/QueryBoundary';
 import { Screen } from '@/components/Screen';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { Text } from '@/components/Text';
 import { profileHandle, profileLabel } from '@/features/social/labels';
 import {
@@ -11,11 +13,10 @@ import {
   usePendingFriendships,
 } from '@/features/social/queries';
 import { radius, spacing, type ThemeColors } from '@/theme';
-import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
+import { useThemedStyles } from '@/theme/ThemeProvider';
 
 export function FriendRequestsScreen() {
   const styles = useThemedStyles(createStyles);
-  const colors = useColors();
   const router = useRouter();
   const pendingQuery = usePendingFriendships();
   const accept = useAcceptFriendRequest();
@@ -27,24 +28,15 @@ export function FriendRequestsScreen() {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Text variant="body" color="primary" onPress={() => router.back()}>
-          Back
-        </Text>
-      </View>
+      <ScreenHeader title="Connection requests" />
 
-      <Text variant="title">Friend requests</Text>
-
-      {pendingQuery.isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : pendingQuery.isError ? (
-        <View style={styles.center}>
-          <Text color="danger">Couldn&apos;t load requests.</Text>
-          <Button title="Retry" variant="secondary" onPress={() => pendingQuery.refetch()} />
-        </View>
-      ) : (
+      <QueryBoundary
+        isLoading={pendingQuery.isLoading}
+        isError={pendingQuery.isError}
+        errorMessage="Couldn't load requests."
+        onRetry={() => pendingQuery.refetch()}
+        containerStyle={styles.center}
+      >
         <ScrollView contentContainerStyle={styles.body}>
           <Text variant="heading">Incoming</Text>
           {incoming.length === 0 ? (
@@ -111,7 +103,7 @@ export function FriendRequestsScreen() {
             ))
           )}
         </ScrollView>
-      )}
+      </QueryBoundary>
     </Screen>
   );
 }

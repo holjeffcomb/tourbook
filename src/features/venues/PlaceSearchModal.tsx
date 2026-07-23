@@ -356,7 +356,7 @@ const createStyles = (colors: ThemeColors) =>
   searchInput: {
     height: 48,
     paddingHorizontal: spacing.md,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.text,
   },
   list: {

@@ -23,8 +23,8 @@ export function UpcomingCrossedPathsScreen() {
 
       <Text variant="title">Upcoming crossed paths</Text>
       <Text color="textMuted" style={styles.subtitle}>
-        Friends you&apos;ll be near on overlapping dates. Past overlaps stay on each friend&apos;s
-        Crossed paths screen.
+        Connections you&apos;ll be near on overlapping dates. Past overlaps stay on each
+        connection&apos;s Crossed paths screen.
       </Text>
 
       {isLoading ? (
@@ -33,8 +33,8 @@ export function UpcomingCrossedPathsScreen() {
         </View>
       ) : count === 0 ? (
         <View style={styles.center}>
-          <Text color="textMuted">No upcoming crossed paths with friends right now.</Text>
-          <Button title="Friends" variant="secondary" onPress={() => router.push('/people/friends')} />
+          <Text color="textMuted">No upcoming crossed paths with connections right now.</Text>
+          <Button title="Connections" variant="secondary" onPress={() => router.push('/people/friends')} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list}>

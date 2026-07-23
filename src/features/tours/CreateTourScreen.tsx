@@ -19,11 +19,12 @@ export function CreateTourScreen() {
         title: '',
         startDate: null,
         endDate: null,
-        visibility: 'public',
+        visibility: 'private',
       }}
       onSubmit={async (values) => {
-        const { id } = await createTour.mutateAsync({ ...values, actId: actId ?? null });
-        // Replace the create form with the new tour's detail.
+        // Queued + optimistic offline; navigate to the new tour immediately using
+        // the client-generated id (it syncs on reconnect).
+        const id = createTour.submit({ ...values, actId: actId ?? null });
         router.replace({ pathname: '/tours/[id]', params: { id } });
       }}
     />

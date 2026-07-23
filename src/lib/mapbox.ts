@@ -175,6 +175,7 @@ type ForwardFeature = {
   geometry: { coordinates: [number, number] };
   properties: {
     name?: string;
+    feature_type?: string;
     full_address?: string;
     address?: string;
     context?: {
@@ -393,6 +394,110 @@ export async function geocodeVenue(
     latitude: null,
     longitude: null,
     confidence: 'unresolved',
+  };
+}
+
+export type AddressGeocodeResult = {
+  /** The business/POI name Mapbox lists at this address, if any. */
+  name: string | null;
+  mapboxPlace: string | null;
+  country: string | null;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+};
+
+// Nearest POI name at a coordinate (Search Box reverse), used to surface "what
+// the business is called" when an address resolved to a plain address feature.
+async function reverseGeocodePoiName(longitude: number, latitude: number): Promise<string | null> {
+  if (!env.mapboxToken) return null;
+  const params = new URLSearchParams({
+    longitude: String(longitude),
+    latitude: String(latitude),
+    access_token: env.mapboxToken,
+    limit: '1',
+    types: 'poi',
+  });
+  try {
+    const res = await fetch(`${BASE}/reverse?${params.toString()}`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as ForwardResponse;
+    return json.features?.[0]?.properties?.name?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a street address to coordinates and, when possible, the business name
+ * Mapbox lists there. This is the manual fallback for when a venue name won't
+ * geocode (e.g. foreign-language names): the caller types the address, we pin
+ * it, and surface the local business name so they can confirm it's the place.
+ * Returns null when the address produces no hit.
+ */
+export async function geocodeAddress(
+  address: string,
+  city?: string,
+): Promise<AddressGeocodeResult | null> {
+  const street = address.trim();
+  if (!env.mapboxToken || street.length < 3) return null;
+
+  const cityTerms = citySearchTerms(city ?? '');
+  const queries = [
+    ...cityTerms.flatMap((c) => [`${street}, ${c}`, `${street} ${c}`]),
+    street,
+  ].filter((q, index, arr) => arr.indexOf(q) === index);
+
+  const proximity = proximityParam(await cityCenter(city));
+
+  let match: ForwardFeature | null = null;
+  for (const query of queries) {
+    const params = new URLSearchParams({
+      q: query,
+      access_token: env.mapboxToken,
+      limit: '6',
+      types: 'poi,address',
+    });
+    if (proximity) params.set('proximity', proximity);
+    const res = await fetch(`${BASE}/forward?${params.toString()}`);
+    if (!res.ok) continue;
+
+    const json = (await res.json()) as ForwardResponse;
+    const features = json.features ?? [];
+    if (features.length === 0) continue;
+
+    const inCity = city
+      ? features.filter((f) =>
+          cityMatches(
+            city,
+            mapboxPlaceLabel(f),
+            f.properties?.full_address ?? f.properties?.address ?? '',
+            f.properties?.context?.region?.name ?? '',
+          ),
+        )
+      : features;
+    const pool = inCity.length > 0 ? inCity : features;
+    // Prefer a POI (carries a business name) over a bare address feature.
+    match = pool.find((f) => f.properties?.feature_type === 'poi') ?? pool[0] ?? null;
+    if (match) break;
+  }
+
+  if (!match) return null;
+
+  const [longitude, latitude] = match.geometry.coordinates;
+  const props = match.properties ?? {};
+  const name =
+    props.feature_type === 'poi' && props.name
+      ? props.name
+      : await reverseGeocodePoiName(longitude, latitude);
+
+  return {
+    name: name?.trim() || null,
+    mapboxPlace: mapboxPlaceLabel(match) || null,
+    country: props.context?.country?.name ?? null,
+    address: props.full_address ?? props.address ?? street,
+    latitude,
+    longitude,
   };
 }
 

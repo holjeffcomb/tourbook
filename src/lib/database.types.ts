@@ -134,6 +134,7 @@ export type Database = {
         Row: {
           address: string | null
           city: string | null
+          country: string | null
           created_at: string
           created_by: string | null
           date: string
@@ -149,6 +150,7 @@ export type Database = {
         Insert: {
           address?: string | null
           city?: string | null
+          country?: string | null
           created_at?: string
           created_by?: string | null
           date: string
@@ -164,6 +166,7 @@ export type Database = {
         Update: {
           address?: string | null
           city?: string | null
+          country?: string | null
           created_at?: string
           created_by?: string | null
           date?: string
@@ -337,6 +340,106 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      crossed_paths: {
+        Args: {
+          max_miles?: number
+          date_window_days?: number
+        }
+        Returns: {
+          friend_id: string
+          friend_display_name: string | null
+          friend_username: string | null
+          my_stop_id: string
+          my_tour_id: string
+          my_tour_title: string | null
+          my_act_name: string | null
+          my_kind: "show" | "off"
+          my_venue_id: string | null
+          my_venue_name: string | null
+          my_venue_city: string | null
+          my_venue_country: string | null
+          my_venue_lat: number | null
+          my_venue_lng: number | null
+          my_label: string | null
+          my_city: string | null
+          my_country: string | null
+          my_address: string | null
+          my_date: string
+          my_lat: number | null
+          my_lng: number | null
+          their_stop_id: string
+          their_tour_id: string
+          their_tour_title: string | null
+          their_act_name: string | null
+          their_kind: "show" | "off"
+          their_venue_id: string | null
+          their_venue_name: string | null
+          their_venue_city: string | null
+          their_venue_country: string | null
+          their_venue_lat: number | null
+          their_venue_lng: number | null
+          their_label: string | null
+          their_city: string | null
+          their_country: string | null
+          their_address: string | null
+          their_date: string
+          their_lat: number | null
+          their_lng: number | null
+          miles: number
+        }[]
+      }
+      create_tour_with_membership: {
+        Args: {
+          p_tour_id: string
+          p_act_id: string | null
+          p_act_name: string
+          p_title: string | null
+          p_start_date: string | null
+          p_end_date: string | null
+          p_visibility: Database["public"]["Enums"]["visibility"]
+          p_role: string | null
+        }
+        Returns: string
+      }
+      create_imported_tour: {
+        Args: {
+          p_tour_id: string
+          p_act_id: string | null
+          p_act_name: string
+          p_title: string | null
+          p_start_date: string | null
+          p_end_date: string | null
+          p_visibility: Database["public"]["Enums"]["visibility"] | null
+          p_role: string | null
+          p_stops: Json
+        }
+        Returns: string
+      }
+      get_or_create_act: {
+        Args: {
+          p_name: string
+        }
+        Returns: string
+      }
+      update_tour_with_role: {
+        Args: {
+          p_tour_id: string
+          p_act_name: string
+          p_title: string | null
+          p_start_date: string | null
+          p_end_date: string | null
+          p_visibility: Database["public"]["Enums"]["visibility"] | null
+          p_role: string | null
+        }
+        Returns: undefined
+      }
+      dedup_venues: {
+        Args: {
+          radius_m?: number
+          max_km?: number
+        }
+        Returns: number
+      }
       find_nearby_venue: {
         Args: {
           lat: number
@@ -364,6 +467,28 @@ export type Database = {
           radius_m?: number
         }
         Returns: number
+      }
+      merge_duplicate_venues_by_name: {
+        Args: {
+          max_km?: number
+        }
+        Returns: number
+      }
+      search_tours_by_act: {
+        Args: {
+          p_act_id: string
+        }
+        Returns: {
+          id: string
+          title: string | null
+          start_date: string | null
+          end_date: string | null
+          created_at: string
+          act_id: string
+          act_name: string
+          member_count: number
+          creator_display_name: string | null
+        }[]
       }
       search_venues: {
         Args: {

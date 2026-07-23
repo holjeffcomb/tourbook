@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import type { Database } from '@/lib/database.types';
+import { listMemberTours } from '@/features/tours/api';
 import type { Profile } from '@/features/profile/api';
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
@@ -162,31 +164,29 @@ export async function unfriend(friendshipId: string, userId: string): Promise<vo
 }
 
 /** Tours the viewer can see for another user (RLS-filtered memberships). */
-export async function listVisibleToursForUser(userId: string) {
-  const { data, error } = await supabase
-    .from('tour_members')
-    .select(
-      'role, tour:tours(id, title, start_date, end_date, visibility, created_at, created_by, act:acts(id, name))',
-    )
-    .eq('user_id', userId);
+export function listVisibleToursForUser(userId: string) {
+  return listMemberTours(userId);
+}
+
+// One matched near-miss pair from the `crossed_paths` RPC: the caller's stop and a
+// friend's stop that fall within the distance + date thresholds. The server does the
+// (privacy-sensitive) join; the client turns each row into a NearMiss.
+export type CrossedPathRow =
+  Database['public']['Functions']['crossed_paths']['Returns'][number];
+
+/**
+ * Server-side near-miss scan for the current user against all accepted friends.
+ * Returns every matched pair (past + upcoming); the caller decides upcoming vs
+ * past using the device's local date. Thresholds default to the app's 100 miles /
+ * same-day window.
+ */
+export async function listCrossedPaths(
+  opts: { maxMiles?: number; dateWindowDays?: number } = {},
+): Promise<CrossedPathRow[]> {
+  const { data, error } = await supabase.rpc('crossed_paths', {
+    max_miles: opts.maxMiles ?? 100,
+    date_window_days: opts.dateWindowDays ?? 0,
+  });
   if (error) throw error;
-
-  type Row = {
-    role: string | null;
-    tour: {
-      id: string;
-      title: string | null;
-      start_date: string | null;
-      end_date: string | null;
-      visibility: string;
-      created_at: string;
-      created_by: string | null;
-      act: { id: string; name: string };
-    } | null;
-  };
-
-  return ((data ?? []) as unknown as Row[])
-    .filter((row) => row.tour)
-    .map((row) => ({ ...row.tour!, myRole: row.role }))
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  return data ?? [];
 }

@@ -1,16 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   getProfile,
-  listPublicToursForUser,
   searchProfiles,
   updateProfile,
   type ProfileUpdate,
 } from '@/features/profile/api';
 
-export const profileKey = (userId: string) => ['profile', userId] as const;
-export const profileSearchKey = (term: string) => ['profiles', 'search', term] as const;
-export const publicToursKey = (userId: string) => ['profile', userId, 'public-tours'] as const;
+export const profileKey = queryKeys.profiles.detail;
+export const profileSearchKey = queryKeys.profiles.search;
 
 export function useProfile(userId?: string) {
   const { session } = useAuth();
@@ -47,13 +46,5 @@ export function useProfileSearch(term: string) {
     queryFn: () => searchProfiles(trimmed, session?.user.id),
     enabled: trimmed.length >= 2,
     staleTime: 30_000,
-  });
-}
-
-export function usePublicToursForUser(userId: string) {
-  return useQuery({
-    queryKey: publicToursKey(userId),
-    queryFn: () => listPublicToursForUser(userId),
-    enabled: !!userId,
   });
 }

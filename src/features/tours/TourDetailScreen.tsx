@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type BottomSheetHandle } from '@/components/BottomSheet';
 import { Button } from '@/components/Button';
 import { Icon } from '@/components/Icon';
+import { IconButton } from '@/components/IconButton';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/features/auth/AuthContext';
 import { MapScreenScaffold } from '@/features/maps/MapScreenScaffold';
@@ -24,7 +25,7 @@ import {
 } from '@/features/tours/queries';
 import { useVenue, useVenuePlayers } from '@/features/venues/queries';
 import { formatDateRange, formatShowDate } from '@/lib/date';
-import { radius, spacing, type ThemeColors } from '@/theme';
+import { MIN_TOUCH_TARGET, radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
 
 // Mid "neighbourhood" zoom used when a single stop is selected on the map — high
@@ -159,41 +160,29 @@ function VenueStopCard({
           {!isOff && !booked ? '  ·  TBD' : ''}
         </Text>
         <View style={styles.venueCardNav}>
-          <Pressable
+          <IconButton
+            name="chevron-back"
             onPress={onPrev}
             disabled={!onPrev}
-            hitSlop={10}
-            accessibilityRole="button"
             accessibilityLabel="Previous stop"
-            style={styles.navButton}
-          >
-            <Text variant="body" style={[styles.navArrow, !onPrev && styles.navArrowDisabled]}>
-              ‹
-            </Text>
-          </Pressable>
-          <Pressable
+            color="primary"
+            size={22}
+          />
+          <IconButton
+            name="chevron-forward"
             onPress={onNext}
             disabled={!onNext}
-            hitSlop={10}
-            accessibilityRole="button"
             accessibilityLabel="Next stop"
-            style={styles.navButton}
-          >
-            <Text variant="body" style={[styles.navArrow, !onNext && styles.navArrowDisabled]}>
-              ›
-            </Text>
-          </Pressable>
-          <Pressable
+            color="primary"
+            size={22}
+          />
+          <IconButton
+            name="close"
             onPress={onClose}
-            hitSlop={10}
-            accessibilityRole="button"
             accessibilityLabel="Close stop details"
-            style={styles.navButton}
-          >
-            <Text variant="body" color="textMuted">
-              ✕
-            </Text>
-          </Pressable>
+            color="textMuted"
+            size={20}
+          />
         </View>
       </View>
       <Text variant="heading" numberOfLines={1}>
@@ -463,13 +452,11 @@ export function TourDetailScreen() {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteTour.mutateAsync(id);
-            router.back();
-          } catch (error) {
-            Alert.alert('Error', error instanceof Error ? error.message : 'Unable to delete tour');
-          }
+        onPress: () => {
+          // Optimistic + queued offline; navigate immediately. A sync failure rolls
+          // the tour back and surfaces via the pending-sync indicator.
+          deleteTour.submit(id);
+          router.back();
         },
       },
     ]);
@@ -518,7 +505,10 @@ export function TourDetailScreen() {
           ? () =>
               router.push({
                 pathname: '/venues/[id]',
-                params: { id: selectedStop.venueId as string },
+                params: {
+                  id: selectedStop.venueId as string,
+                  backLabel: tour?.act.name ?? 'Tour',
+                },
               })
           : undefined
       }
@@ -555,16 +545,28 @@ export function TourDetailScreen() {
 
           {isCreator && (
             <View style={styles.creatorActions}>
-              <Text
-                variant="body"
-                color="primary"
+              <Pressable
                 onPress={() => router.push({ pathname: '/tours/[id]/edit', params: { id } })}
+                accessibilityRole="button"
+                accessibilityLabel="Edit tour"
+                hitSlop={10}
+                style={({ pressed }) => [styles.linkAction, pressed && styles.linkActionPressed]}
               >
-                Edit
-              </Text>
-              <Text variant="body" color="danger" onPress={confirmDelete}>
-                Delete
-              </Text>
+                <Text variant="body" color="primary">
+                  Edit
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDelete}
+                accessibilityRole="button"
+                accessibilityLabel="Delete tour"
+                hitSlop={10}
+                style={({ pressed }) => [styles.linkAction, pressed && styles.linkActionPressed]}
+              >
+                <Text variant="body" color="danger">
+                  Delete
+                </Text>
+              </Pressable>
             </View>
           )}
 
@@ -775,21 +777,10 @@ const createStyles = (colors: ThemeColors) =>
     venueCardNav: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
-    },
-    navButton: {
-      minWidth: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    navArrow: {
-      fontSize: 22,
-      lineHeight: 22,
-      color: colors.primary,
-    },
-    navArrowDisabled: {
-      color: colors.textMuted,
-      opacity: 0.35,
+      // The IconButtons reserve their own 44px touch footprint, which spaces the
+      // small glyphs apart; a negative right margin pulls the cluster back to the
+      // card's padding edge so it doesn't look inset.
+      marginRight: -spacing.xs,
     },
     venueCardMeta: {
       paddingTop: spacing.xs,
@@ -807,6 +798,12 @@ const createStyles = (colors: ThemeColors) =>
       justifyContent: 'flex-end',
       gap: spacing.md,
     },
+    linkAction: {
+      paddingVertical: spacing.xs,
+    },
+    linkActionPressed: {
+      opacity: 0.6,
+    },
     members: {
       gap: spacing.sm,
     },
@@ -815,6 +812,8 @@ const createStyles = (colors: ThemeColors) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.sm,
+      minHeight: MIN_TOUCH_TARGET,
+      paddingVertical: spacing.xs,
     },
     itineraryHeading: {
       paddingTop: spacing.xs,

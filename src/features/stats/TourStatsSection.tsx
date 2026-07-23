@@ -112,11 +112,11 @@ export function TourStatsSection({ stops }: Props) {
               <Fragment key={h.label}>
                 {index > 0 && <View style={styles.rowDivider} />}
                 <View style={styles.row}>
-                  <Text variant="callout" color="textMuted" style={styles.rowLabel} numberOfLines={2}>
+                  <Text variant="caption" color="textMuted" style={styles.rowLabel} numberOfLines={2}>
                     {h.label}
                   </Text>
                   <View style={styles.rowRight}>
-                    <Text variant="subheading" align="right" numberOfLines={1}>
+                    <Text variant="callout" weight="semibold" align="right" numberOfLines={1}>
                       {h.value}
                     </Text>
                     {!!h.detail && (
@@ -142,17 +142,18 @@ const createStyles = (colors: ThemeColors) =>
       paddingBottom: spacing.xs,
     },
     card: {
-      padding: spacing.md,
+      paddingHorizontal: spacing.sm + 4,
+      paddingVertical: spacing.sm,
       borderRadius: radius.lg,
       backgroundColor: colors.surfaceElevated,
       borderWidth: 1,
       borderColor: colors.border,
-      gap: spacing.sm,
+      gap: spacing.xs,
     },
     kicker: {
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '700',
-      letterSpacing: 1.3,
+      letterSpacing: 1.2,
       textTransform: 'uppercase',
       color: colors.textMuted,
     },
@@ -163,18 +164,19 @@ const createStyles = (colors: ThemeColors) =>
     cell: {
       width: '33.33%',
       alignItems: 'center',
-      gap: 2,
-      paddingVertical: spacing.sm,
+      gap: 1,
+      paddingVertical: spacing.xs + 2,
     },
     cellValue: {
-      fontSize: 24,
+      fontSize: 18,
       fontWeight: '700',
       color: colors.text,
+      letterSpacing: -0.3,
     },
     cellLabel: {
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '600',
-      letterSpacing: 0.8,
+      letterSpacing: 0.7,
       textTransform: 'uppercase',
       textAlign: 'center',
       color: colors.textMuted,
@@ -184,7 +186,7 @@ const createStyles = (colors: ThemeColors) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.md,
-      paddingVertical: spacing.sm,
+      paddingVertical: spacing.xs + 2,
     },
     rowLabel: {
       flex: 1,

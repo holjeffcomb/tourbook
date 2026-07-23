@@ -81,12 +81,12 @@ export function ActDetailScreen() {
           )}
 
           <Text variant="heading" style={styles.section}>
-            Friends who worked this act
+            Connections who worked this act
           </Text>
           {crewQuery.isLoading ? (
             <ActivityIndicator color={colors.primary} />
           ) : friends.length === 0 ? (
-            <Text color="textMuted">None of your friends yet.</Text>
+            <Text color="textMuted">None of your connections yet.</Text>
           ) : (
             friends.map((member) => (
               <Pressable

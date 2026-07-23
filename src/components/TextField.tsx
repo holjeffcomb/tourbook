@@ -46,7 +46,7 @@ const createStyles = (colors: ThemeColors) =>
       borderColor: colors.border,
       borderRadius: radius.md,
       paddingHorizontal: spacing.md,
-      fontSize: 16,
+      fontSize: 15,
       color: colors.text,
       backgroundColor: colors.surfaceElevated,
     },
