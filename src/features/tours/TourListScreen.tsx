@@ -20,8 +20,6 @@ import { useColors, useThemedStyles } from '@/theme/ThemeProvider';
 // full list.
 const LIST_SNAP_FRACTIONS = [0.2, 0.55, 0.92];
 
-type MapFocusMode = 'next' | 'all';
-
 // Upcoming = ends today or later (ongoing tours included). Tours with no dates
 // are kept so a freshly-created tour still appears.
 function isUpcoming(tour: Pick<MyTour, 'start_date' | 'end_date'>, todayISO: string): boolean {
@@ -82,50 +80,6 @@ function TourRow({
   );
 }
 
-function FocusToggle({
-  mode,
-  onChange,
-  allCount,
-}: {
-  mode: MapFocusMode;
-  onChange: (mode: MapFocusMode) => void;
-  allCount: number;
-}) {
-  const styles = useThemedStyles(createStyles);
-  return (
-    <View style={styles.segment} accessibilityRole="tablist">
-      <Pressable
-        onPress={() => onChange('next')}
-        accessibilityRole="tab"
-        accessibilityState={{ selected: mode === 'next' }}
-        style={[styles.segmentBtn, mode === 'next' && styles.segmentBtnActive]}
-      >
-        <Text
-          variant="caption"
-          weight="semibold"
-          color={mode === 'next' ? 'onPrimary' : 'textSecondary'}
-        >
-          Next tour
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => onChange('all')}
-        accessibilityRole="tab"
-        accessibilityState={{ selected: mode === 'all' }}
-        style={[styles.segmentBtn, mode === 'all' && styles.segmentBtnActive]}
-      >
-        <Text
-          variant="caption"
-          weight="semibold"
-          color={mode === 'all' ? 'onPrimary' : 'textSecondary'}
-        >
-          All tours{allCount > 0 ? ` (${allCount})` : ''}
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
 /**
  * The "My Tours" tab. When the current date falls inside one of the user's
  * tours the app enters Tour Mode (focused on where they are vs. the venue);
@@ -162,7 +116,6 @@ function UpcomingToursScreen({
   const router = useRouter();
   const { data: tours, isLoading, isError, refetch, isRefetching } = useTours();
   const bottomChrome = TAB_BAR_HEIGHT + insets.bottom;
-  const [focusMode, setFocusMode] = useState<MapFocusMode>('next');
 
   const todayISO = dateToISO(new Date());
   const upcoming = useMemo(() => {
@@ -181,33 +134,34 @@ function UpcomingToursScreen({
   const others = useMemo(() => upcoming.filter((t) => t.id !== activeId), [upcoming, activeId]);
   const nextTour = others[0] ?? null;
   const rest = others.slice(1);
-  // What the "Next tour" map focus should frame — falls back to the current tour
-  // when there's nothing else upcoming.
-  const focusTour = nextTour ?? activeTour;
+  // The map always draws every upcoming route, but frames the tour the user
+  // cares about right now — the current tour if we're viewing the list during
+  // one, otherwise the next tour — so the camera lands somewhere meaningful
+  // instead of a mid-ocean overview of far-flung tours.
+  const focusTour = activeTour ?? nextTour;
   const upcomingIds = useMemo(() => upcoming.map((t) => t.id), [upcoming]);
   const colorIndex = useMemo(() => new Map(upcomingIds.map((id, i) => [id, i])), [upcomingIds]);
 
-  const { routes: allRoutes } = useTourRouteLines(upcomingIds);
-  const routes = useMemo(() => {
-    if (focusMode === 'next' && focusTour) {
-      return allRoutes.filter((r) => r.id === focusTour.id);
-    }
-    return allRoutes;
-  }, [allRoutes, focusMode, focusTour]);
+  const { routes } = useTourRouteLines(upcomingIds);
+  const focusCoords = useMemo(() => {
+    const route = focusTour ? routes.find((r) => r.id === focusTour.id) : undefined;
+    return route && route.coordinates.length > 0 ? route.coordinates : undefined;
+  }, [routes, focusTour]);
 
-  const scene = useMemo<MapScene>(() => {
-    const focusIds =
-      focusMode === 'next' && focusTour ? [focusTour.id] : upcomingIds;
-    return {
+  const scene = useMemo<MapScene>(
+    () => ({
       key: 'my-tours',
-      frameKey: `my-tours-${focusMode}-${focusIds.join('|')}`,
-      // Single tour: fit the whole route. All tours: trimmed overview so a
-      // cross-ocean outlier doesn't zoom the world.
-      focusMode: focusMode === 'next' ? 'bounds' : 'trimmed',
+      frameKey: `my-tours-${focusTour?.id ?? 'none'}-${upcomingIds.join('|')}`,
+      // Frame the primary tour's route (fit its bounds); all upcoming routes are
+      // still drawn for context. Falls back to fitting everything when the
+      // primary tour has no located stops yet.
+      focusMode: 'bounds',
       routes,
+      focus: focusCoords,
       contentInsets: { top: insets.top + 56, left: spacing.md, right: spacing.md },
-    };
-  }, [routes, focusMode, focusTour, upcomingIds, insets.top]);
+    }),
+    [routes, focusCoords, focusTour, upcomingIds, insets.top],
+  );
 
   const sheetHeader = (
     <View style={styles.sheetHeader}>
@@ -217,9 +171,6 @@ function UpcomingToursScreen({
           {upcoming.length} upcoming
         </Text>
       </View>
-      {upcoming.length > 1 && (
-        <FocusToggle mode={focusMode} onChange={setFocusMode} allCount={upcoming.length} />
-      )}
     </View>
   );
 
@@ -272,7 +223,7 @@ function UpcomingToursScreen({
 
             {nextTour && (
               <View style={styles.section}>
-                <Text style={styles.sectionKicker}>{activeTour ? 'Next tour' : 'Upcoming tour'}</Text>
+                <Text style={styles.sectionKicker}>Next tour</Text>
                 <TourRow
                   tour={nextTour}
                   color={routeColorAt(colorIndex.get(nextTour.id) ?? 0)}
@@ -282,9 +233,9 @@ function UpcomingToursScreen({
               </View>
             )}
 
-            {focusMode === 'all' && rest.length > 0 && (
+            {rest.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionKicker}>More upcoming</Text>
+                <Text style={styles.sectionKicker}>Upcoming</Text>
                 {rest.map((tour) => (
                   <TourRow
                     key={tour.id}
@@ -294,19 +245,6 @@ function UpcomingToursScreen({
                   />
                 ))}
               </View>
-            )}
-
-            {focusMode === 'next' && rest.length > 0 && (
-              <Pressable
-                onPress={() => setFocusMode('all')}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.showAllHint, pressed && styles.rowPressed]}
-              >
-                <Text variant="callout" color="primary">
-                  Show all {others.length} upcoming tours
-                </Text>
-                <Icon name="chevron-forward" size={16} color="primary" />
-              </Pressable>
             )}
           </>
         ) : (
@@ -330,24 +268,6 @@ const createStyles = (colors: ThemeColors) =>
     },
     sheetTitleRow: {
       gap: 2,
-    },
-    segment: {
-      flexDirection: 'row',
-      padding: 3,
-      borderRadius: radius.full,
-      backgroundColor: colors.surfaceMuted,
-      gap: 2,
-    },
-    segmentBtn: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: spacing.xs + 1,
-      paddingHorizontal: spacing.sm,
-      borderRadius: radius.full,
-    },
-    segmentBtnActive: {
-      backgroundColor: colors.primary,
     },
     body: {
       paddingHorizontal: spacing.md,
@@ -386,13 +306,6 @@ const createStyles = (colors: ThemeColors) =>
     },
     resumeHint: {
       marginTop: 2,
-    },
-    showAllHint: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.xxs,
-      paddingVertical: spacing.sm,
     },
     center: {
       flex: 1,

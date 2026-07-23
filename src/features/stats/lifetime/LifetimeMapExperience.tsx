@@ -33,6 +33,7 @@ import {
 import type { PassportStats } from '@/features/stats/types';
 import { radius, spacing, type ThemeColors } from '@/theme';
 import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
+import { planAmbient } from './ambientPlan';
 import { LifetimeHeader } from './LifetimeHeader';
 import { PlaceDetailCard } from './PlaceDetailCard';
 import { StatsContent } from './StatsContent';
@@ -149,6 +150,12 @@ export function LifetimeMapExperience({
 
   const ready = status === 'ready' && stats != null;
 
+  // Ambient cinematic loop: an ordered, looping itinerary of clusters the map
+  // slowly pans across and dissolves between while the page is idle. Recomputed
+  // only when the visible places change (e.g. year filter). MapStage pauses it
+  // automatically on touch / place selection.
+  const ambient = useMemo(() => (ready ? (planAmbient(places) ?? undefined) : undefined), [ready, places]);
+
   const selectedPlace = selectedPlaceId
     ? (places.find((p) => p.id === selectedPlaceId) ?? null)
     : null;
@@ -187,6 +194,7 @@ export function LifetimeMapExperience({
       routes,
       placesMode: effectiveMode,
       selectedPlaceId,
+      ambient,
       contentInsets: {
         top: headerHeight,
         bottom: mapBottomInset,
@@ -204,6 +212,7 @@ export function LifetimeMapExperience({
       effectiveMode,
       selectedYear,
       selectedPlaceId,
+      ambient,
       headerHeight,
       mapBottomInset,
       onSelectPlace,
@@ -279,7 +288,12 @@ export function LifetimeMapExperience({
           ) : status === 'error' ? (
             <View style={styles.center}>
               <Text color="danger">Couldn&apos;t load your stats.</Text>
-              <Pressable onPress={onRetry} accessibilityRole="button" style={styles.retry}>
+              <Pressable
+                onPress={onRetry}
+                accessibilityRole="button"
+                hitSlop={12}
+                style={styles.retry}
+              >
                 <Text color="primary">Retry</Text>
               </Pressable>
             </View>
@@ -441,6 +455,9 @@ function ToggleButton({
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
+      // Keep the compact pill visuals, but expand the tappable area (esp.
+      // vertically) so the small segment clears the 44px comfort minimum.
+      hitSlop={{ top: 12, bottom: 12, left: 4, right: 4 }}
       style={[styles.toggleButton, active && styles.toggleButtonActive]}
     >
       <Icon name={icon} size={16} color={active ? 'onPrimary' : 'textSecondary'} />

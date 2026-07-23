@@ -1,6 +1,7 @@
 import { BlurView } from 'expo-blur';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
+import { IconButton } from '@/components/IconButton';
 import { Text } from '@/components/Text';
 import type { MapPlace } from '@/features/maps/mapScene';
 import { radius, spacing, type ThemeColors } from '@/theme';
@@ -69,17 +70,14 @@ export function PlaceDetailCard({ place, top, onClose }: Props) {
             </Text>
           )}
         </View>
-        <Pressable
+        <IconButton
+          name="close"
           onPress={onClose}
-          hitSlop={10}
-          accessibilityRole="button"
           accessibilityLabel="Close place details"
-          style={styles.close}
-        >
-          <Text variant="body" color="textMuted">
-            ✕
-          </Text>
-        </Pressable>
+          color="textMuted"
+          size={20}
+          style={styles.closeButton}
+        />
       </View>
       <View style={styles.stats}>
         <Stat value={String(place.weight ?? 1)} label={`visit${(place.weight ?? 1) === 1 ? '' : 's'}`} />
@@ -155,10 +153,11 @@ const createStyles = (colors: ThemeColors) =>
       textTransform: 'uppercase',
       color: colors.textMuted,
     },
-    close: {
-      minWidth: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
+    closeButton: {
+      // Pull the 44px touch target back toward the card edge so the small glyph
+      // still reads as aligned with the padding.
+      marginRight: -spacing.sm,
+      marginTop: -spacing.xs,
     },
     stats: {
       flexDirection: 'row',

@@ -5,6 +5,7 @@ import {
   type TextStyle,
 } from 'react-native';
 import {
+  FONT_SCALE_MAX,
   fontWeight as fontWeights,
   typography,
   type ColorToken,
@@ -26,6 +27,7 @@ export function Text({
   weight,
   align,
   style,
+  maxFontSizeMultiplier = FONT_SCALE_MAX,
   ...rest
 }: Props) {
   const colors = useColors();
@@ -47,6 +49,7 @@ export function Text({
         style,
         clearLineHeight ? { lineHeight: undefined } : null,
       ]}
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
       {...rest}
     />
   );

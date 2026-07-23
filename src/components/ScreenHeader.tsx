@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Text } from '@/components/Text';
 import { spacing } from '@/theme';
 
@@ -24,9 +24,17 @@ export function ScreenHeader({ onBack, backLabel = 'Back', title, style }: Props
   return (
     <>
       <View style={[styles.topBar, style]}>
-        <Text variant="body" color="primary" onPress={onBack ?? (() => router.back())}>
-          {backLabel}
-        </Text>
+        <Pressable
+          onPress={onBack ?? (() => router.back())}
+          accessibilityRole="button"
+          accessibilityLabel={backLabel}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
+          style={({ pressed }) => [styles.backHit, pressed && styles.pressed]}
+        >
+          <Text variant="body" color="primary">
+            {backLabel}
+          </Text>
+        </Pressable>
       </View>
       {!!title && <Text variant="title">{title}</Text>}
     </>
@@ -37,5 +45,12 @@ const styles = StyleSheet.create({
   topBar: {
     paddingTop: spacing.md,
     marginBottom: spacing.sm,
+  },
+  backHit: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  pressed: {
+    opacity: 0.6,
   },
 });

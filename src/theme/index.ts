@@ -121,6 +121,15 @@ export const radius = {
   full: 999,
 } satisfies Record<string, number>;
 
+// Minimum interactive touch target (px). Matches Apple HIG / Material guidance.
+// Icon-only controls keep small *visuals* but must reserve at least this much
+// tappable area (via size or hitSlop) so they're comfortable on a real phone.
+export const MIN_TOUCH_TARGET = 44;
+
+// Cap on OS Dynamic Type scaling for app text. Lets larger accessibility sizes
+// through a little, but stops them from blowing up dense map sheets / lists.
+export const FONT_SCALE_MAX = 1.3;
+
 // Shadow presets. iOS reads shadow*, Android reads elevation; we set both so a
 // card looks consistent cross-platform. Shadow color stays dark on both themes.
 export const elevation = {

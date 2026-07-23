@@ -9,8 +9,9 @@ import {
   SymbolLayer,
 } from '@rnmapbox/maps';
 import type { Feature, Point } from 'geojson';
-import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactElement } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { type ThemeColors } from '@/theme';
 import { useColors, useTheme, useThemedStyles } from '@/theme/ThemeProvider';
 import {
@@ -48,6 +49,11 @@ import {
 } from './mapLayerStyles';
 import { MarkerView } from './MapMarkerView';
 import { useActiveMapEntry, type Coord } from './mapScene';
+import { useAmbientCamera } from './useAmbientCamera';
+
+// After the user touches the map, wait this long with no further touches before
+// the ambient cinematic loop resumes.
+const AMBIENT_RESUME_MS = 4500;
 
 /**
  * The single, persistent map for the whole authenticated app. It renders on top
@@ -64,6 +70,7 @@ export function MapStage() {
   const bottomChrome = scene?.bottomChrome ?? 0;
 
   const cameraRef = useRef<ComponentRef<typeof Camera>>(null);
+  const mapViewRef = useRef<ComponentRef<typeof MapView>>(null);
   const sourceRef = useRef<ComponentRef<typeof ShapeSource>>(null);
   // ShapeSource presses also bubble a MapView press — ignore that one so we
   // don't clear the pane we just opened.
@@ -118,6 +125,34 @@ export function MapStage() {
 
   const selectedId = scene?.selectedPlaceId ?? null;
 
+  // Ambient cinematic loop (Lifetime). Paused while the user is interacting with
+  // the map or has a place selected, so pins stay put and tappable.
+  const ambientPlan = scene?.ambient ?? null;
+  const [interacting, setInteracting] = useState(false);
+  const interactingRef = useRef(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bumpInteract = useCallback(() => {
+    if (!interactingRef.current) {
+      interactingRef.current = true;
+      setInteracting(true);
+    }
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      interactingRef.current = false;
+      setInteracting(false);
+    }, AMBIENT_RESUME_MS);
+  }, []);
+  useEffect(() => () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+  }, []);
+
+  const { snapshotUri, snapshotStyle, onSnapshotLoad } = useAmbientCamera({
+    cameraRef,
+    mapViewRef,
+    plan: ambientPlan,
+    paused: interacting || selectedId != null || !mapReady || !overlaysReady,
+  });
+
   const placeCollection = useMemo(() => buildPlaceCollection(places), [places]);
   const routeLines = useMemo(() => buildRouteLines(routes), [routes]);
   const routePoints = useMemo(() => buildRoutePoints(routes), [routes]);
@@ -145,6 +180,9 @@ export function MapStage() {
   const framedSceneKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!framing || !mapReady) return;
+    // When the scene drives an ambient cinematic loop, it owns the camera — skip
+    // the static framing so the two don't fight.
+    if (scene?.ambient) return;
     // A bounds fit needs the map's pixel size; a single point doesn't.
     if (!framing.single && (mapSize.width === 0 || mapSize.height === 0)) return;
 
@@ -381,6 +419,8 @@ export function MapStage() {
     <View
       style={[styles.root, { bottom: bottomChrome, opacity: hidden ? 0 : 1 }]}
       pointerEvents={!hidden && interactive ? 'auto' : 'none'}
+      onTouchStart={ambientPlan ? bumpInteract : undefined}
+      onTouchMove={ambientPlan ? bumpInteract : undefined}
       onLayout={(e) => {
         const { width, height } = e.nativeEvent.layout;
         setMapSize((prev) =>
@@ -392,6 +432,7 @@ export function MapStage() {
     >
       <MapView
         key={scheme}
+        ref={mapViewRef}
         style={styles.map}
         styleURL={resolvedStyle.url}
         scaleBarEnabled={false}
@@ -527,6 +568,18 @@ export function MapStage() {
         )}
       </MapView>
 
+      {/* Frozen snapshot used to hide the camera reposition during an ambient
+          dissolve — fades out to reveal the live map beneath it (never black). */}
+      {snapshotUri && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Animated.Image
+            source={{ uri: snapshotUri }}
+            style={[StyleSheet.absoluteFill, snapshotStyle]}
+            resizeMode="cover"
+            onLoad={onSnapshotLoad}
+          />
+        </View>
+      )}
     </View>
   );
 }
